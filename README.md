@@ -53,7 +53,11 @@ Grab the latest Release installer for your platform.
 
 **Windows:** run `Bass-Better-er-Windows.exe`. It installs the VST3 to the standard folder. Windows is VST3 only, there is no AU.
 
+**Linux:** grab `Bass-Better-er-Linux-VST3.zip`, unzip it, and drop `Bass Better-er.vst3` into `~/.vst3` (or `/usr/lib/vst3` for all users). Linux is VST3 only, there is no AU. The Linux build is native (x86_64) and meant for hosts like Ubuntu Studio / Reaper / Ardour.
+
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
+
+**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-macOS-Standalone.zip` / `Bass-Better-er-Windows-Standalone.zip`. Unzip and run the app directly — it picks an audio input/output device and runs the same tone stack without a host. On macOS it is signed but not notarized, so right click then Open the first time (if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
 
 ## Support
 

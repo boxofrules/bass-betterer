@@ -30,9 +30,21 @@ jobs:
         include:
           - { name: macOS,   os: macos-14 }
           - { name: Windows, os: windows-2022 }
+          - { name: Linux,   os: ubuntu-22.04 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # JUCE on Linux needs the X11 / ALSA / JACK / GTK-webkit dev headers.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libglu1-mesa-dev libgl1-mesa-dev \
+            libcurl4-openssl-dev libwebkit2gtk-4.1-dev
 
       - name: Decrypt cab IRs
         shell: bash
@@ -54,6 +66,10 @@ jobs:
         if: runner.os == 'Windows'
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON
 
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON
+
       - name: Build
         run: cmake --build build --config Release -j
 
@@ -63,6 +79,18 @@ jobs:
         run: |
           VER="${{ github.event.inputs.tag || github.ref_name }}"; VER="${VER#v}"
           bash packaging/macos/build-dmg.sh "build/BoRBassEnhancer_artefacts/Release" "Bass-Better-er-macOS.dmg" "$VER"
+
+      # Standalone .app for users who just want the app, not the plug-ins. Ad-hoc sign it —
+      # the .pkg signs its bundles internally, but a hand-installed app won't launch otherwise.
+      # Still not notarized, so users may need to clear the quarantine xattr on first open.
+      - name: Package macOS (Standalone)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ART="build/BoRBassEnhancer_artefacts/Release"
+          NAME="Bass Better-er"
+          codesign --force --deep -s - "$ART/Standalone/$NAME.app"
+          ditto -c -k --keepParent "$ART/Standalone/$NAME.app" "Bass-Better-er-macOS-Standalone.zip"
 
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'
@@ -77,13 +105,36 @@ jobs:
           & $iscc "/DAppVer=$ver" packaging\windows\installer.iss
           Move-Item -Force packaging\windows\Bass-Better-er-Windows.exe .
 
+      # Standalone .exe for users who just want the app, not the VST3.
+      - name: Package Windows (Standalone)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $art = "build/BoRBassEnhancer_artefacts/Release"
+          Compress-Archive -Force -Path "$art/Standalone/Bass Better-er.exe" -DestinationPath "Bass-Better-er-Windows-Standalone.zip"
+
+      # Linux ships a native VST3 (a bundle dir, as on every platform) plus the Standalone
+      # binary. No AU on Linux, and no installer — users drop the .vst3 into ~/.vst3.
+      - name: Package Linux (VST3 + Standalone)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ART="build/BoRBassEnhancer_artefacts/Release"
+          NAME="Bass Better-er"
+          ( cd "$ART/VST3" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-VST3.zip" "$NAME.vst3" )
+          ( cd "$ART/Standalone" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-Standalone.zip" "$NAME" )
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.name }}
           path: |
             Bass-Better-er-macOS.dmg
+            Bass-Better-er-macOS-Standalone.zip
             Bass-Better-er-Windows.exe
+            Bass-Better-er-Windows-Standalone.zip
+            Bass-Better-er-Linux-VST3.zip
+            Bass-Better-er-Linux-Standalone.zip
           if-no-files-found: ignore
 
   release:
@@ -107,3 +158,4 @@ jobs:
           files: |
             dist/*.dmg
             dist/*.exe
+            dist/*.zip
