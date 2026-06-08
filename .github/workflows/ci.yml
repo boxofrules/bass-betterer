@@ -28,9 +28,22 @@ jobs:
         include:
           - { name: macOS,   os: macos-14 }
           - { name: Windows, os: windows-2022 }
+          - { name: Linux,   os: ubuntu-22.04 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # JUCE on Linux needs the X11 / ALSA / JACK / GTK-webkit dev headers.
+      # xvfb gives pluginval a virtual display for the editor/GUI tests.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libglu1-mesa-dev libgl1-mesa-dev \
+            libcurl4-openssl-dev libwebkit2gtk-4.1-dev xvfb
 
       - name: Decrypt cab IRs
         shell: bash
@@ -48,3 +61,17 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release -j
+
+      # Real load test for the Linux VST3: pluginval instantiates the plugin and runs
+      # the audio/parameter/state passes (a true load+process check, not just a compile).
+      # Linux is the newest target and can't be auval'd, so validate it here. Runs under
+      # xvfb because the editor tests need a display.
+      - name: Validate Linux VST3 (pluginval)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSL -o pluginval.zip \
+            https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Linux.zip
+          unzip -q pluginval.zip
+          chmod +x pluginval
+          xvfb-run -a ./pluginval --strictness-level 5 --timeout-ms 120000 \
+            --validate "build/BoRBassEnhancer_artefacts/Release/VST3/Bass Better-er.vst3"
