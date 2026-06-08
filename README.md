@@ -49,15 +49,31 @@ Every layer is a channel strip with the same controls.
 
 Grab the latest Release installer for your platform.
 
-**macOS:** open `Bass-Better-er-macOS.dmg` and run the installer (`.pkg`). It puts the AU and VST3 in place (universal Apple Silicon and Intel). The build is signed but not notarized, so the first run needs right click then Open.
+**macOS:** open `Bass-Better-er-macOS.dmg` and run the installer (`.pkg`) — universal Apple Silicon and Intel. It installs to the system plug-in folders:
 
-**Windows:** run `Bass-Better-er-Windows.exe`. It installs the VST3 to the standard folder. Windows is VST3 only, there is no AU.
+| Format | Installed to |
+| --- | --- |
+| AU | `/Library/Audio/Plug-Ins/Components/Bass Better-er.component` |
+| VST3 | `/Library/Audio/Plug-Ins/VST3/Bass Better-er.vst3` |
 
-**Linux:** grab `Bass-Better-er-Linux-VST3.zip`, unzip it, and drop `Bass Better-er.vst3` into `~/.vst3` (or `/usr/lib/vst3` for all users). Linux is VST3 only, there is no AU. The Linux build is native (x86_64) and meant for hosts like Ubuntu Studio / Reaper / Ardour.
+The build is signed but not notarized, so the first run needs right click then Open.
+
+**Windows:** run `Bass-Better-er-Windows.exe`. Windows is VST3 only (there is no AU), installed to the standard shared VST3 folder:
+
+| Format | Installed to |
+| --- | --- |
+| VST3 | `C:\Program Files\Common Files\VST3\Bass Better-er.vst3` |
+
+**Linux:** grab `Bass-Better-er-Linux-VST3.zip`, unzip it, and copy the `Bass Better-er.vst3` folder into one of these (Linux is VST3 only, no AU; native x86_64, for hosts like Ubuntu Studio / Reaper / Ardour):
+
+| Scope | Copy `Bass Better-er.vst3` to |
+| --- | --- |
+| Just you | `~/.vst3/` |
+| All users | `/usr/lib/vst3/` |
 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
-**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-macOS-Standalone.zip` / `Bass-Better-er-Windows-Standalone.zip`. Unzip and run the app directly — it picks an audio input/output device and runs the same tone stack without a host. On macOS it is signed but not notarized, so right click then Open the first time (if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
+**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. On macOS it is signed but not notarized, so right click then Open the first time (if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
 
 ## Support
 
