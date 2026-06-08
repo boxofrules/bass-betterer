@@ -63,6 +63,10 @@ It is free to use. If it earns a place on your tracks, throw a coffee in the tip
 
 [☕ ko-fi.com/boxofrules](https://ko-fi.com/boxofrules)
 
+## Disclaimer
+
+**Bass Better-er** is provided "as is", with no warranty of any kind. To the maximum extent permitted by law, Box of Rules accepts no responsibility or liability for any damage, data loss, crashes, or other issues arising from this software or from its installation. You install and use it entirely at your own risk.
+
 ## License
 
 Proprietary. © Box of Rules. All rights reserved. See [LICENSE](LICENSE).

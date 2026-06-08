@@ -26,6 +26,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName=Bass Better-er
 AppPublisherURL=https://github.com/boxofrules/bass-betterer
+; terms/disclaimer shown as a must-accept page (path relative to SourceDir = repo root)
+LicenseFile=packaging\DISCLAIMER.txt
 
 [Files]
 Source: "pkgsrc\Bass Better-er.vst3\*"; DestDir: "{commoncf}\VST3\Bass Better-er.vst3"; \

@@ -18,6 +18,9 @@ ID="com.boxofrules.bassbetterer"
 [[ -d "$ART/AU/$NAME.component" ]] || { echo "ERROR: missing $ART/AU/$NAME.component (build first)" >&2; exit 1; }
 [[ -d "$ART/VST3/$NAME.vst3"   ]] || { echo "ERROR: missing $ART/VST3/$NAME.vst3 (build first)"   >&2; exit 1; }
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+disclaimer="$here/../DISCLAIMER.txt"
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 root="$work/root"
@@ -32,6 +35,8 @@ codesign --force --deep -s - "$root/Library/Audio/Plug-Ins/VST3/$NAME.vst3"
 # component package -> distribution-wrapped installer (nicer UI + title)
 pkgbuild --root "$root" --install-location "/" --identifier "$ID" --version "$VER" "$work/component.pkg"
 
+# terms/disclaimer shown as a must-agree license pane in the installer
+cp "$disclaimer" "$work/disclaimer.txt" 2>/dev/null || true
 cat > "$work/distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
@@ -39,12 +44,13 @@ cat > "$work/distribution.xml" <<XML
   <organization>com.boxofrules</organization>
   <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
   <domains enable_localSystem="true"/>
+  <license file="disclaimer.txt"/>
   <choices-outline><line choice="default"/></choices-outline>
   <choice id="default"><pkg-ref id="$ID"/></choice>
   <pkg-ref id="$ID" version="$VER" onConclusion="none">component.pkg</pkg-ref>
 </installer-gui-script>
 XML
-productbuild --distribution "$work/distribution.xml" --package-path "$work" "$work/$NAME $VER.pkg"
+productbuild --distribution "$work/distribution.xml" --package-path "$work" --resources "$work" "$work/$NAME $VER.pkg"
 
 # wrap the pkg in a compressed dmg
 dmgroot="$work/dmg"; mkdir -p "$dmgroot"
