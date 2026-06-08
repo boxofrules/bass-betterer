@@ -1,0 +1,36 @@
+# --- Proprietary: NEVER commit plaintext IRs or built binaries (they embed the IRs) ---
+ir/*.wav
+*.component/
+*.vst3/
+*.zip
+
+# --- Private maintainer notes (the capture recipe) — kept local, never committed ---
+CLAUDE.md
+*.private.md
+
+# Build output
+build/
+build-*/
+cmake-build-*/
+*.dSYM/
+*.a
+*.o
+
+# JUCE FetchContent / dependency checkouts
+_deps/
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Local secrets / signing keys / IR passphrase
+*.p12
+*.cer
+*.key
+.env

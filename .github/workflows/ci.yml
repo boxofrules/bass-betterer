@@ -1,0 +1,50 @@
+name: CI
+
+# Optional sanity-build for macOS + Windows. This does NOT run on every push —
+# release binaries are built on version tags by release.yml, and there's no point
+# compiling two large binaries just because a doc changed. It runs on pull requests
+# that touch buildable code, or on demand via the Actions tab (Run workflow).
+
+on:
+  pull_request:
+    paths:
+      - 'Source/**'
+      - 'ir/**'
+      - 'CMakeLists.txt'
+      - 'scripts/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS,   os: macos-14 }
+          - { name: Windows, os: windows-2022 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decrypt cab IRs
+        shell: bash
+        env:
+          BOR_IR_KEY: ${{ secrets.BOR_IR_KEY }}
+        run: |
+          if [ -z "$BOR_IR_KEY" ]; then
+            echo "::error::BOR_IR_KEY secret is not set — add it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          ./scripts/ir-crypt.sh decrypt
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j

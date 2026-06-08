@@ -1,0 +1,109 @@
+name: Release
+
+# Push a tag like v0.1.0 to build universal macOS (AU + VST3) and Windows (VST3)
+# binaries and attach them to a GitHub Release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Each platform builds + packages its own zip and uploads it as an artifact; a final
+# job collects both and publishes the release once (no per-platform race, no missing-
+# file failures). Requires the BOR_IR_KEY repo secret to decrypt the cab IRs.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS,   os: macos-14 }
+          - { name: Windows, os: windows-2022 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decrypt cab IRs
+        shell: bash
+        env:
+          BOR_IR_KEY: ${{ secrets.BOR_IR_KEY }}
+        run: |
+          if [ -z "$BOR_IR_KEY" ]; then
+            echo "::error::BOR_IR_KEY secret is not set — add it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          ./scripts/ir-crypt.sh decrypt
+
+      # macOS ships a universal arm64+x86_64 binary; Windows is x64 native.
+      - name: Configure (macOS universal)
+        if: runner.os == 'macOS'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Package macOS (.pkg in .dmg)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VER="${{ github.event.inputs.tag || github.ref_name }}"; VER="${VER#v}"
+          bash packaging/macos/build-dmg.sh "build/BoRBassEnhancer_artefacts/Release" "Bass-Better-er-macOS.dmg" "$VER"
+
+      - name: Package Windows (.exe)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $art = "build/BoRBassEnhancer_artefacts/Release"
+          New-Item -ItemType Directory -Force pkgsrc | Out-Null
+          Copy-Item -Recurse "$art/VST3/Bass Better-er.vst3" pkgsrc/
+          $ver = ("${{ github.event.inputs.tag || github.ref_name }}") -replace '^v',''
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVer=$ver" packaging\windows\installer.iss
+          Move-Item -Force packaging\windows\Bass-Better-er-Windows.exe .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          path: |
+            Bass-Better-er-macOS.dmg
+            Bass-Better-er-Windows.exe
+          if-no-files-found: ignore
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Bass Better-er ${{ github.event.inputs.tag || github.ref_name }}
+          draft: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.dmg
+            dist/*.exe
