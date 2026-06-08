@@ -12,7 +12,7 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 ## Channels and controls
 
-A real bass record is never one signal. It is a foundation you feel, a body you hear, dirt that bites, and the room around all of it, balanced live. Bass Better-er bottles that as parallel frequency role layers. They overlap rather than brick wall, the lows stay mono and centred, and the stereo image widens as it climbs. It holds together on a phone and opens up on a big system.
+A real bass record is never one signal. It is a foundation you feel, a body you hear, dirt that bites, and the room around all of it, balanced live. **Bass Better-er** bottles that as parallel frequency role layers. They overlap rather than brick wall, the lows stay mono and centred, and the stereo image widens as it climbs. It holds together on a phone and opens up on a big system.
 
 | Layer | Role |
 | --- | --- |
@@ -57,7 +57,9 @@ Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
 ## Support
 
-Made by Box of Rules. If Bass Better-er earns a place on your tracks, throw a coffee in the tip jar. It funds more free tools like this.
+Made by Box of Rules. **Bass Better-er** was not cheap or quick to build. It is years in the making, drawing on 15 years of professional engineering experience ([deviantops.com](https://deviantops.com)) and a lot of studio time capturing and tuning the real signal chain behind it.
+
+It is free to use. If it earns a place on your tracks, throw a coffee in the tip jar. It funds more free tools like this.
 
 [☕ ko-fi.com/boxofrules](https://ko-fi.com/boxofrules)
 
