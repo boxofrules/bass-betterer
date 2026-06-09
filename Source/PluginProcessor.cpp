@@ -172,6 +172,7 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     outBus.setSize (2, samplesPerBlock);
     layerBuf.setSize (NUM_CH, samplesPerBlock);
     keyEnv.allocate ((size_t) samplesPerBlock, true);
+    voiceMono.allocate ((size_t) samplesPerBlock, true);
 
     // sidechain follower: 5 ms attack, 140 ms release
     scEnv = 0.0f;
@@ -258,7 +259,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load()) : 0.0f;
 
     // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf; build room feed ----
-    juce::HeapBlock<float> voiceMono ((size_t) n, true);
+    juce::FloatVectorOperations::clear (voiceMono, n);
 
     auto renderLayer = [&] (int c, const float* src)
     {
@@ -267,7 +268,10 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         juce::FloatVectorOperations::copy (w, src, n);
 
         const bool fuzzOn = def.isFX && pFuzz[(size_t) c] != nullptr && pFuzz[(size_t) c]->load() > 0.5f;
-        juce::dsp::AudioBlock<float> cb (work);
+        // only this block's n samples — wrapping all of `work` (sized to the host max)
+        // feeds stale samples back through the convolution when the host renders
+        // shorter blocks (GarageBand/Logic live input)
+        auto cb = juce::dsp::AudioBlock<float> (work).getSubBlock (0, (size_t) n);
         juce::dsp::ProcessContextReplacing<float> ctx (cb);
         if (fuzzOn)
         {
@@ -350,7 +354,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         glueComp.setThreshold (-3.0f - glue * 21.0f);   // 0..1 -> -3..-24 dB
         glueComp.setRatio (1.0f + glue * 5.0f);          // 1..6 :1
-        juce::dsp::AudioBlock<float> gb (outBus);
+        auto gb = juce::dsp::AudioBlock<float> (outBus).getSubBlock (0, (size_t) n);
         juce::dsp::ProcessContextReplacing<float> gctx (gb);
         glueComp.process (gctx);
         const float makeup = juce::Decibels::decibelsToGain (glue * 4.0f);

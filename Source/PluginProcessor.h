@@ -93,6 +93,7 @@ private:
     juce::AudioBuffer<float> monoIn, dryIn, work, outBus; // dryIn = original DI; outBus 2-ch
     juce::AudioBuffer<float> layerBuf;                     // NUM_CH mono layers (post fuzz/conv)
     juce::HeapBlock<float>   keyEnv;                       // per-sample LO FX sidechain envelope
+    juce::HeapBlock<float>   voiceMono;                    // voicing sum that feeds the rooms
     float scEnv = 0.0f, scAtk = 0.0f, scRel = 0.0f;       // sidechain follower state/coeffs
 
     // spectrum analyzer fifo (output mono -> editor FFT)
