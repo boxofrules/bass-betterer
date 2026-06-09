@@ -27,6 +27,12 @@ juce_add_plugin(BoRBassEnhancer
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
+    # TCC usage descriptions for the standalone — macOS aborts the process if a
+    # privacy-gated API is touched without one (e.g. the Bluetooth MIDI button).
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Bass Better-er needs audio input to process your bass DI."
+    BLUETOOTH_PERMISSION_ENABLED TRUE
+    BLUETOOTH_PERMISSION_TEXT "Bass Better-er uses Bluetooth to connect Bluetooth MIDI devices."
     COPY_PLUGIN_AFTER_BUILD TRUE)
 
 juce_generate_juce_header(BoRBassEnhancer)
