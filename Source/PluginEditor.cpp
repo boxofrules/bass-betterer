@@ -100,10 +100,16 @@ struct KnobLnf : public juce::LookAndFeel_V4
     }
 };
 
-// ---- editor LnF: keep the resize functional but draw no (tacky) corner grip ----
+// ---- editor LnF: brand-toned diagonal grip so the resize corner is findable ----
 struct EditorLnf : public juce::LookAndFeel_V4
 {
-    void drawCornerResizer (juce::Graphics&, int, int, bool, bool) override {}
+    void drawCornerResizer (juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging) override
+    {
+        g.setColour (isMouseOver || isMouseDragging ? bor::mute2 : bor::mute);
+        const float ww = (float) w, hh = (float) h;
+        for (float i = 0.3f; i < 1.0f; i += 0.3f)
+            g.drawLine (ww * i, hh, ww, hh * i, 1.0f);
+    }
 };
 
 // ---- hex BR monogram (from BOR-icon-black.svg), filled signal cyan ----------
