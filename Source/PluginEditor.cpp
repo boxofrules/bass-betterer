@@ -410,7 +410,8 @@ struct Analyzer : public juce::Component
 
         g.setColour (bor::mute2);
         g.setFont (bor::mono (9.0f));
-        g.drawText (on ? "SPECTRUM  ·  Hz" : "SPECTRUM // OFF", b.toNearestInt().reduced (5, 4),
+        g.drawText (on ? juce::String::fromUTF8 ("SPECTRUM  \xC2\xB7  Hz") : juce::String ("SPECTRUM // OFF"),
+                    b.toNearestInt().reduced (5, 4),
                     juce::Justification::topLeft);
         g.drawText ("dB", juce::Rectangle<int> ((int) inner.getRight() - 26, (int) inner.getY() + 3, 22, 10),
                     juce::Justification::topRight);
@@ -530,7 +531,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 presetBox.addItem (userFiles[i].getFileNameWithoutExtension(), 100 + i);
         }
         presetBox.addSeparator();
-        presetBox.addItem ("Save current\xE2\x80\xA6", 1000);
+        presetBox.addItem (juce::String::fromUTF8 ("Save current\xE2\x80\xA6"), 1000);
     }
 
     void presetChosen()
