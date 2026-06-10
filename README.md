@@ -1,6 +1,9 @@
 # Bass Better-er
 
+[![DOWNLOAD NOW](https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_DOWNLOAD_NOW-Latest_Release-2ea44f?style=for-the-badge)](https://github.com/boxofrules/bass-betterer/releases/latest)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/boxofrules)
+
+**[⬇️ Download the latest release here](https://github.com/boxofrules/bass-betterer/releases/latest)** — pick the file for your platform (macOS / Windows / Linux), then follow the [install steps](#install-from-a-release) below.
 
 One bass DI, rebuilt into a whole session.
 
@@ -47,7 +50,7 @@ Every layer is a channel strip with the same controls.
 
 ## Install (from a Release)
 
-Grab the latest Release installer for your platform.
+Grab the [latest Release](https://github.com/boxofrules/bass-betterer/releases/latest) installer for your platform.
 
 **macOS:** open `Bass-Better-er-macOS.dmg` and run the installer (`.pkg`) — universal Apple Silicon and Intel. It installs to the system plug-in folders:
 
