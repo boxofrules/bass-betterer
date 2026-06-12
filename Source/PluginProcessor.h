@@ -122,6 +122,12 @@ private:
     std::atomic<bool> abDi { false };
     float abXf = 0.0f, abCoef = 0.0f;
 
+    // block-rate gain ramps (zipper-noise fix): previous block's effective values,
+    // snapped (not ramped) on the first block after prepare
+    std::array<float, NUM_CH> smLg {}, smRg {};
+    float smDiLg = 0.0f, smDiRg = 0.0f, smInG = 1.0f, smOutG = 1.0f, smMakeup = 1.0f;
+    bool  smSnap = true;
+
     juce::AudioProcessLoadMeasurer loadMeasurer;   // CPU % for the SYS info panel
     std::atomic<int> lastBlock { 0 };
     std::atomic<float> fuzzOsLat { 0.0f };

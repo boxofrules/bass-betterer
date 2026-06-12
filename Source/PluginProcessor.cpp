@@ -194,6 +194,7 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     abXf = 0.0f;
     abCoef = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.010));
     loadMeasurer.reset (sampleRate, samplesPerBlock);
+    smSnap = true;   // gain ramps snap to targets on the first block
 }
 
 // ---- spectrum analyzer SPSC fifos -------------------------------------------
@@ -244,8 +245,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer (loadMeasurer, n);
     lastBlock.store (n, std::memory_order_relaxed);
 
+    // All mix gains (strip gain/mute/solo/pan, DI, INPUT, OUTPUT) ramp linearly
+    // across the block from the previous block's value — otherwise moving a
+    // control while playing steps the gain once per block (audible zipper noise).
+    const float rampInc = 1.0f / (float) n;
+
     // --- input: dry DI (pre-gain, for the DI blend) + mono with input-gain (pushes fuzz) ---
     const float inG = juce::Decibels::decibelsToGain (pInGain->load());
+    if (smSnap) smInG = inG;
     auto* mono = monoIn.getWritePointer (0);
     auto* dry  = dryIn.getWritePointer (0);
     for (int s = 0; s < n; ++s)
@@ -254,8 +261,9 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
         const float avg = (nIn > 0 ? v / (float) nIn : 0.0f);
         dry[s]  = avg;
-        mono[s] = avg * inG;
+        mono[s] = avg * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
     }
+    smInG = inG;
 
     // --- solo state (the DI strip participates) + per-strip active/gain ---
     bool anySolo = false;
@@ -332,38 +340,47 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto* outL = outBus.getWritePointer (0);
     auto* outR = outBus.getWritePointer (1);
 
+    // ramps from the previous block's effective L/R gains to this block's targets,
+    // so gain/pan moves AND mute/solo cuts glide instead of stepping
     auto mixStrip = [&] (const float* lc, float g, bool duckOn, float pan, float phase,
-                         std::atomic<float>& levelOut)
+                         float& prevLg, float& prevRg, std::atomic<float>& levelOut)
     {
         const float ang = (pan * 0.5f + 0.5f) * juce::MathConstants<float>::halfPi;
-        const float lg = std::cos (ang) * g * phase, rg = std::sin (ang) * g * phase;
+        const float tLg = std::cos (ang) * g * phase, tRg = std::sin (ang) * g * phase;
+        if (smSnap) { prevLg = tLg; prevRg = tRg; }
+        if (tLg == 0.0f && tRg == 0.0f && prevLg == 0.0f && prevRg == 0.0f)
+        { levelOut.store (0.0f, std::memory_order_relaxed); return; }
+
         float pk = 0.0f;
         for (int s = 0; s < n; ++s)
         {
-            const float v = lc[s] * (duckOn ? keyEnv[(size_t) s] : 1.0f);
+            const float r  = (float) (s + 1) * rampInc;
+            const float lg = prevLg + (tLg - prevLg) * r;
+            const float rg = prevRg + (tRg - prevRg) * r;
+            const float v  = lc[s] * (duckOn ? keyEnv[(size_t) s] : 1.0f);
             outL[s] += v * lg;
             outR[s] += v * rg;
             pk = juce::jmax (pk, std::abs (v));
         }
+        prevLg = tLg; prevRg = tRg;
         levelOut.store (pk * std::abs (g), std::memory_order_relaxed);
     };
 
     for (int c = 0; c < NUM_CH; ++c)
     {
-        if (! active[(size_t) c]) { chLevel[(size_t) c].store (0.0f, std::memory_order_relaxed); continue; }
+        // inactive strips still mix with target gain 0 so the cut ramps out
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
         mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c],
-                  pDuck[(size_t) c]->load() > 0.5f, pan, 1.0f, chLevel[(size_t) c]);
+                  pDuck[(size_t) c]->load() > 0.5f, pan, 1.0f,
+                  smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]);
     }
 
-    if (diActive)
     {
-        // DI blend stays centred too (its strip carries the A/B button instead of pan)
+        // DI blend stays centred (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, pDiDuck->load() > 0.5f, 0.0f, phase, diLevel);
+        mixStrip (dry, diGain, pDiDuck->load() > 0.5f, 0.0f, phase, smDiLg, smDiRg, diLevel);
     }
-    else diLevel.store (0.0f, std::memory_order_relaxed);
 
     // --- glue: compress the sum (threshold/ratio scale with the knob) ---
     const float glue = pGlue->load();
@@ -374,22 +391,38 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         auto gb = juce::dsp::AudioBlock<float> (outBus).getSubBlock (0, (size_t) n);
         juce::dsp::ProcessContextReplacing<float> gctx (gb);
         glueComp.process (gctx);
-        const float makeup = juce::Decibels::decibelsToGain (glue * 4.0f);
-        outBus.applyGain (makeup);
     }
+    // makeup ramps (and ramps back to unity when glue disengages) — knob moves
+    // would otherwise step the gain once per block
+    const float makeup = glue > 0.0001f ? juce::Decibels::decibelsToGain (glue * 4.0f) : 1.0f;
+    if (smSnap) smMakeup = makeup;
+    if (smMakeup != 1.0f || makeup != 1.0f)
+        outBus.applyGainRamp (0, n, smMakeup, makeup);
+    smMakeup = makeup;
 
-    // --- output gain + write to the host buffer (mono or stereo) ---
+    // --- output gain (ramped) + write to the host buffer (mono or stereo) ---
     const float outG = juce::Decibels::decibelsToGain (pOutGain->load());
+    if (smSnap) smOutG = outG;
     if (numOut >= 2)
     {
-        for (int s = 0; s < n; ++s) { buffer.getWritePointer (0)[s] = outL[s] * outG;
-                                      buffer.getWritePointer (1)[s] = outR[s] * outG; }
+        for (int s = 0; s < n; ++s)
+        {
+            const float og = smOutG + (outG - smOutG) * (float) (s + 1) * rampInc;
+            buffer.getWritePointer (0)[s] = outL[s] * og;
+            buffer.getWritePointer (1)[s] = outR[s] * og;
+        }
         for (int ch = 2; ch < numOut; ++ch) buffer.clear (ch, 0, n);
     }
     else if (numOut == 1)
     {
-        for (int s = 0; s < n; ++s) buffer.getWritePointer (0)[s] = (outL[s] + outR[s]) * 0.5f * outG;
+        for (int s = 0; s < n; ++s)
+        {
+            const float og = smOutG + (outG - smOutG) * (float) (s + 1) * rampInc;
+            buffer.getWritePointer (0)[s] = (outL[s] + outR[s]) * 0.5f * og;
+        }
     }
+    smOutG = outG;
+    smSnap = false;
 
     // --- DI reference A/B: crossfade the host buffer toward the raw DI ---
     const float abTarget = abDi.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
