@@ -185,8 +185,8 @@ struct Knob : public juce::Component
 struct Strip : public juce::Component
 {
     Strip (BoRBassEnhancerProcessor& p, const juce::String& prefix, const juce::String& nm,
-           bool isFX_, bool hasPan_, FaderLnf& flnf, KnobLnf& klnf)
-        : isFX (isFX_), hasPan (hasPan_), chName (nm)
+           bool isFX_, bool hasPan_, bool hasAB_, FaderLnf& flnf, KnobLnf& klnf)
+        : isFX (isFX_), hasPan (hasPan_), hasAB (hasAB_), chName (nm)
     {
         gain.setSliderStyle (juce::Slider::LinearVertical);
         gain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -221,6 +221,8 @@ struct Strip : public juce::Component
             addAndMakeVisible (pan);
             panAtt = std::make_unique<SA> (p.apvts, prefix + "_pan", pan);
         }
+        if (hasAB)   // DI strip: A/B audition lives where pan would (owner wires onClick)
+            ab = makeTog ("A/B", bor::amber, bor::ink, "Audition the raw DI against the processed sound");
         refreshMuted();
     }
 
@@ -293,7 +295,8 @@ struct Strip : public juce::Component
         if (fuzz != nullptr) fuzz->setBounds (fuzzRow);
 
         r.removeFromTop (12);
-        if (hasPan) pan.setBounds (r.removeFromBottom (32).withSizeKeepingCentre (34, 30));
+        if (hasPan)      pan.setBounds (r.removeFromBottom (32).withSizeKeepingCentre (34, 30));
+        else if (hasAB)  ab->setBounds (r.removeFromBottom (32).withSizeKeepingCentre (52, 22));
         readoutRect = r.removeFromBottom (22);
         r.removeFromBottom (8);
 
@@ -303,10 +306,10 @@ struct Strip : public juce::Component
         meterRect = block.removeFromLeft (8);
     }
 
-    bool isFX, hasPan;
+    bool isFX, hasPan, hasAB;
     juce::String chName;
     juce::Slider gain, pan;
-    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz;
+    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz, ab;
     std::unique_ptr<SA> gainAtt, panAtt;
     std::unique_ptr<BA> muteAtt, soloAtt, phaseAtt, scAtt, fuzzAtt;
     float level = 0.0f;
@@ -443,19 +446,24 @@ struct Analyzer : public juce::Component
             };
 
             // raw DI underneath in grey, processed output on top in signal cyan
-            juce::Path diLine;
-            tracePath (traces[1], diLine);
-            g.setColour (bor::mute2.withAlpha (0.85f));
-            g.strokePath (diLine, juce::PathStrokeType (1.0f));
-
-            juce::Path outLine;
-            tracePath (traces[0], outLine);
-            juce::Path fill (outLine);
-            fill.lineTo (inner.getRight(), inner.getBottom());
-            fill.lineTo (inner.getX(), inner.getBottom());
-            fill.closeSubPath();
-            g.setColour (bor::accent.withAlpha (0.16f)); g.fillPath (fill);
-            g.setColour (bor::accent);                   g.strokePath (outLine, juce::PathStrokeType (1.5f));
+            if (view != 2)   // ALL or PRE
+            {
+                juce::Path diLine;
+                tracePath (traces[1], diLine);
+                g.setColour (bor::mute2.withAlpha (0.85f));
+                g.strokePath (diLine, juce::PathStrokeType (view == 1 ? 1.5f : 1.0f));
+            }
+            if (view != 1)   // ALL or POST
+            {
+                juce::Path outLine;
+                tracePath (traces[0], outLine);
+                juce::Path fill (outLine);
+                fill.lineTo (inner.getRight(), inner.getBottom());
+                fill.lineTo (inner.getX(), inner.getBottom());
+                fill.closeSubPath();
+                g.setColour (bor::accent.withAlpha (0.16f)); g.fillPath (fill);
+                g.setColour (bor::accent);                   g.strokePath (outLine, juce::PathStrokeType (1.5f));
+            }
         }
 
         // header: title + colour legend
@@ -468,8 +476,10 @@ struct Analyzer : public juce::Component
         {
             auto leg = hdr.removeFromTop (10);
             leg.removeFromLeft (110);
-            g.setColour (bor::mute2);  g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 DI"),  leg.removeFromLeft (38), juce::Justification::topLeft);
-            g.setColour (bor::accent); g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 OUT"), leg.removeFromLeft (44), juce::Justification::topLeft);
+            if (view != 2)
+            { g.setColour (bor::mute2);  g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 DI"),  leg.removeFromLeft (38), juce::Justification::topLeft); }
+            if (view != 1)
+            { g.setColour (bor::accent); g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 OUT"), leg.removeFromLeft (44), juce::Justification::topLeft); }
         }
         g.setColour (bor::mute2);
         g.drawText ("dB", juce::Rectangle<int> ((int) inner.getRight() - 26, (int) inner.getY() + 3, 22, 10),
@@ -482,13 +492,34 @@ struct Analyzer : public juce::Component
     juce::HeapBlock<float> tmp     { (size_t) fftSize, true };
     std::array<Trace, 2> traces;   // [0] processed output, [1] raw DI
     bool on = true;
+    int  view = 0;                 // 0 = ALL, 1 = PRE (DI only), 2 = POST (out only)
 };
 
 // ---- SYS overlay: live engine/host stats (CPU, latency, buffer, format) -----
 // Answers the "what is the CPU load / latency / oversampling" questions in-product.
 struct InfoPanel : public juce::Component
 {
-    InfoPanel() { setInterceptsMouseClicks (true, false); }
+    InfoPanel()
+    {
+        setInterceptsMouseClicks (true, true);   // children (COPY) must get clicks
+        copyBtn = std::make_unique<SquareButton> ("COPY", bor::accent, bor::accentOn);
+        copyBtn->setClickingTogglesState (false);
+        copyBtn->setTooltip ("Copy these stats to the clipboard (for bug reports)");
+        copyBtn->onClick = [this]
+        {
+            juce::StringArray out { "Bass Better-er SYS" };
+            for (const auto& l : lines)
+                out.add (l.upToFirstOccurrenceOf ("|", false, false).paddedRight (' ', 13)
+                         + l.fromFirstOccurrenceOf ("|", false, false));
+            juce::SystemClipboard::copyTextToClipboard (out.joinIntoString ("\n"));
+            copyBtn->setButtonText ("COPIED");
+            juce::Timer::callAfterDelay (900, [sp = juce::Component::SafePointer<SquareButton> (copyBtn.get())]
+                                              { if (sp != nullptr) sp->setButtonText ("COPY"); });
+        };
+        addAndMakeVisible (*copyBtn);
+    }
+
+    void resized() override { copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20); }
 
     // each line is "KEY|value"
     void setLines (juce::StringArray l) { if (l != lines) { lines = std::move (l); repaint(); } }
@@ -518,6 +549,7 @@ struct InfoPanel : public juce::Component
 
     std::function<void()> onDismiss;
     juce::StringArray lines;
+    std::unique_ptr<SquareButton> copyBtn;
 };
 
 static void drawRegMark (juce::Graphics& g, int x, int y)
@@ -565,28 +597,33 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         rebuildPresetMenu();
         presetBox.onChange = [this] { presetChosen(); };
 
-        // DI blend strip first, then the 8 voicing layers
-        strips.add (new bbe::Strip (proc, "di", "DI", false, stereo, faderLnf, knobLnf));
+        // DI blend strip first (no pan — A/B audition sits there instead), then the
+        // 8 voicing layers. SUB has no pan either: the lows stay dead centre.
+        strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, knobLnf));
         for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
         {
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
-            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX, stereo, faderLnf, knobLnf));
+            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
+                                        stereo && c != 0, false, faderLnf, knobLnf));
         }
         for (auto* s : strips) addAndMakeVisible (s);
 
+        // A/B audition — a listening tool, deliberately not a saved parameter
+        strips[0]->ab->setToggleState (proc.getDiReference(), juce::dontSendNotification);
+        strips[0]->ab->onClick = [this] { proc.setDiReference (strips[0]->ab->getToggleState()); };
+
         analyzer = std::make_unique<bbe::Analyzer>();
         addAndMakeVisible (*analyzer);
-        freq = std::make_unique<bbe::SquareButton> ("FREQ", bor::accent, bor::accentOn);
-        freq->setTooltip ("Spectrum display on/off (CPU)");
-        addAndMakeVisible (*freq);
-        freqAtt = std::make_unique<bbe::BA> (proc.apvts, "analyzer", *freq);
 
-        // DI reference A/B — audition tool only, deliberately not a saved parameter
-        ab = std::make_unique<bbe::SquareButton> ("A/B", bor::amber, bor::ink);
-        ab->setTooltip ("Audition the raw DI against the processed sound");
-        ab->setToggleState (proc.getDiReference(), juce::dontSendNotification);  // editor reopened mid-A/B
-        ab->onClick = [this] { proc.setDiReference (ab->getToggleState()); };
-        addAndMakeVisible (*ab);
+        // FREQ cycles the spectrum display: OFF -> ALL -> PRE (DI) -> POST (plugin).
+        // OFF drops the analyzer feed (the CPU saver); the view mode persists with
+        // the session as a non-automatable state property.
+        freq = std::make_unique<bbe::SquareButton> ("FREQ", bor::accent, bor::accentOn);
+        freq->setTooltip ("Spectrum display: click to cycle OFF / ALL / PRE (DI) / POST");
+        freq->setClickingTogglesState (false);
+        freq->onClick = [this] { cycleFreqMode(); };
+        addAndMakeVisible (*freq);
+        refreshFreqButton();
 
         // SYS — engine stats overlay
         sys = std::make_unique<bbe::SquareButton> ("SYS", bor::accent, bor::accentOn);
@@ -630,6 +667,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             strips[c + 1]->setLevel (smooth (meterLevel[(size_t) (c + 1)], proc.getChannelLevel (c)));
         analyzer->update (proc);
 
+        refreshFreqButton();   // host automation can flip the analyzer param under us
+
         if (info->isVisible())
         {
             const float load = (float) proc.getCpuLoad();
@@ -637,6 +676,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             info->setLines ({
                 "VERSION|"     + juce::String (JucePlugin_VersionString),
                 "FORMAT|"      + juce::String (juce::AudioProcessor::getWrapperTypeDescription (proc.wrapperType)),
+                "HOST|"        + juce::String (juce::PluginHostType().getHostDescription()),
+                "OS|"          + juce::SystemStats::getOperatingSystemName(),
                 "OUTPUT|"      + juce::String (proc.isStereo() ? "STEREO" : "MONO"),
                 "SAMPLE RATE|" + juce::String (proc.getSampleRate(), 0) + " Hz",
                 "BLOCK|"       + juce::String (proc.getLastBlockSize()) + " smp (host)",
@@ -646,6 +687,31 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "XRUNS|"       + juce::String (proc.getXRunCount()) + " (callbacks over budget)",
             });
         }
+    }
+
+    // ---- FREQ display cycle: OFF -> ALL -> PRE (DI only) -> POST (plugin only) ----
+    juce::String freqView() const
+    { return proc.apvts.state.getProperty ("freqView", "all").toString(); }
+
+    void cycleFreqMode()
+    {
+        auto* p = proc.apvts.getParameter ("analyzer");
+        const auto v = freqView();
+        if (! proc.analyzerEnabled())
+        { p->setValueNotifyingHost (1.0f); proc.apvts.state.setProperty ("freqView", "all", nullptr); }
+        else if (v == "all") proc.apvts.state.setProperty ("freqView", "pre",  nullptr);
+        else if (v == "pre") proc.apvts.state.setProperty ("freqView", "post", nullptr);
+        else                 p->setValueNotifyingHost (0.0f);
+        refreshFreqButton();
+    }
+
+    void refreshFreqButton()
+    {
+        const bool on = proc.analyzerEnabled();
+        const auto v  = freqView();
+        freq->setToggleState (on, juce::dontSendNotification);
+        freq->setButtonText (! on ? "FREQ:OFF" : v == "pre" ? "FREQ:PRE" : v == "post" ? "FREQ:POST" : "FREQ:ALL");
+        analyzer->view = v == "pre" ? 1 : v == "post" ? 2 : 0;
     }
 
     // ---- update notice: GitHub latest-release tag, checked at most once a day ----
@@ -783,7 +849,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         presetBox.setBounds (header.getRight() - padX - 70 - 12 - 220, cy - 13, 220, 26);
         sys->setBounds (presetBox.getX() - 12 - 44, cy - 13, 44, 26);
         updateLink.setBounds (sys->getX() - 12 - 170, cy - 13, 170, 26);
-        info->setBounds (getLocalBounds().withSizeKeepingCentre (430, 230));
+        info->setBounds (getLocalBounds().withSizeKeepingCentre (430, 262));
 
         hdrRuleY = r.getY();
         r.removeFromTop (1);
@@ -810,12 +876,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // spectrum analyzer fills the left, with the FREQ + A/B toggles above it
+        // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
-        auto togRow = left.removeFromTop (24);
-        freq->setBounds (togRow.removeFromLeft (70));
-        togRow.removeFromLeft (6);
-        ab->setBounds (togRow.removeFromLeft (70));
+        freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
 
@@ -835,8 +898,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<juce::AlertWindow> saveWin;
     juce::OwnedArray<bbe::Strip> strips;
     std::unique_ptr<bbe::Analyzer> analyzer;
-    std::unique_ptr<bbe::SquareButton> freq, ab, sys;
-    std::unique_ptr<bbe::BA> freqAtt;
+    std::unique_ptr<bbe::SquareButton> freq, sys;
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };

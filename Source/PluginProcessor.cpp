@@ -351,16 +351,17 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (int c = 0; c < NUM_CH; ++c)
     {
         if (! active[(size_t) c]) { chLevel[(size_t) c].store (0.0f, std::memory_order_relaxed); continue; }
-        const float pan = isStereo() ? pPan[(size_t) c]->load() : 0.0f;
+        // SUB (c == 0) is dead centre by design — its pan param is vestigial
+        const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
         mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c],
                   pDuck[(size_t) c]->load() > 0.5f, pan, 1.0f, chLevel[(size_t) c]);
     }
 
     if (diActive)
     {
-        const float pan   = isStereo() ? pDiPan->load() : 0.0f;
+        // DI blend stays centred too (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, pDiDuck->load() > 0.5f, pan, phase, diLevel);
+        mixStrip (dry, diGain, pDiDuck->load() > 0.5f, 0.0f, phase, diLevel);
     }
     else diLevel.store (0.0f, std::memory_order_relaxed);
 

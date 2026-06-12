@@ -19,7 +19,7 @@ A real bass record is never one signal. It is a foundation you feel, a body you 
 
 | Layer | Role |
 | --- | --- |
-| DI | The original dry DI tone, blended back in. Muted by default. |
+| DI | The original dry DI tone, blended back in. Muted by default. Carries the A/B button. |
 | SUB | The foundation. Always on, dead centre. |
 | LOW CLEAN | Body and warmth. |
 | LOW FX | Grit and aggression, with an engageable FUZZ. |
@@ -32,7 +32,7 @@ Every layer is a channel strip with the same controls.
 | Gain | Layer level. |
 | M | Mute. |
 | S | Solo. |
-| Pan | Placement in the stereo field (shown only in stereo). |
+| Pan | Placement in the stereo field (shown only in stereo; SUB and DI have none — they stay dead centre). |
 | Ø | Phase (polarity) invert. |
 | SC | Sidechain. Duck this layer when the dirt hits, keyed off the LOW FX. |
 | FUZZ | Engage the dirt. LOW FX layers only. |
@@ -44,11 +44,11 @@ Every layer is a channel strip with the same controls.
 | INPUT | Input gain. Also drives the fuzz, like a pedal. |
 | GLUE | Sums the layers into one cohesive instrument. |
 | OUTPUT | Output gain. |
-| FREQ | Spectrum display on or off (turn off to save CPU). |
-| A/B | Audition the raw DI against the processed sound (click-free, never saved with the session). |
-| SYS | Live engine stats: CPU load, latency, sample rate, buffer size, format. |
+| FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |
+| A/B | On the DI strip: audition the raw DI against the processed sound (click-free, never saved with the session). |
+| SYS | Live engine stats: CPU load, latency, sample rate, buffer size, host, OS — with one-click COPY for bug reports. |
 
-The spectrum display draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
+In ALL view the spectrum draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
 
 **Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Duck, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
 
