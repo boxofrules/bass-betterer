@@ -37,7 +37,7 @@ struct FuzzChain
         os->initProcessing ((size_t) blockSize);
 
         juce::dsp::ProcessSpec mono { sampleRate, (juce::uint32) blockSize, 1 };
-        for (int b = 0; b < 8; ++b)
+        for (size_t b = 0; b < 8; ++b)
         {
             gritBP[b].prepare (mono);
             gritBP[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sr, CENTRES[b], 1.4f);
@@ -92,8 +92,8 @@ struct FuzzChain
             const float d2 = clip (d, 3.0f, asym, hard);       // grittier cascade
             const float diff = d2 - d;                          // extra harmonics to sprinkle per band
             float grit = 0.0f;
-            for (int b = 0; b < 8; ++b)
-                grit += g[(size_t) b] * gritBP[b].processSample (diff);
+            for (size_t b = 0; b < 8; ++b)
+                grit += g[b] * gritBP[b].processSample (diff);
             x[i] = (d + grit) * env[(size_t) i];                // restore the note's dynamics
         }
     }

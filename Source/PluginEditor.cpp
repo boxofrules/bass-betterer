@@ -659,7 +659,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     ~Content() override
     {
         stopTimer();
-        // join the update check before teardown (worst case ~4 s on its first run,
+        // dismiss the save dialog while `this` is still intact (unique_ptr::reset
+        // nulls before deleting, so the modal callback's reset becomes a no-op)
+        saveWin.reset();
+        // join the update check before teardown (worst case ~2 s on its first run,
         // and only within the brief once-a-day check window)
         if (updateThread != nullptr) updateThread->stopThread (5000);
         // The A/B audition ends with the editor: leaving it engaged would keep the
@@ -767,7 +770,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             juce::URL url ("https://api.github.com/repos/boxofrules/bass-betterer/releases/latest");
             if (auto stream = url.createInputStream (
                     juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                        .withConnectionTimeoutMs (4000)))
+                        .withConnectionTimeoutMs (2000)))   // also bounds the dtor join
                 tag = juce::JSON::parse (stream->readEntireStreamAsString())
                           .getProperty ("tag_name", {}).toString();
 
@@ -843,14 +846,19 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             saveWin->addTextEditor ("name", "My Preset");
             saveWin->addButton ("Save",   1, juce::KeyPress (juce::KeyPress::returnKey));
             saveWin->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            saveWin->enterModalState (true, juce::ModalCallbackFunction::create ([this] (int r)
+            // SafePointer: if Content is being destroyed (host force-closes the editor
+            // with the dialog open), the AlertWindow's destructor fires this callback
+            // mid-teardown — touching members then is use-after-free territory
+            saveWin->enterModalState (true, juce::ModalCallbackFunction::create (
+                [safe = juce::Component::SafePointer<Content> (this)] (int r)
             {
+                if (safe == nullptr) return;
                 if (r == 1)
                 {
-                    const auto nm = saveWin->getTextEditorContents ("name").trim();
-                    if (nm.isNotEmpty()) { proc.saveUserPreset (nm); rebuildPresetMenu(); }
+                    const auto nm = safe->saveWin->getTextEditorContents ("name").trim();
+                    if (nm.isNotEmpty()) { safe->proc.saveUserPreset (nm); safe->rebuildPresetMenu(); }
                 }
-                saveWin.reset();
+                safe->saveWin.reset();
             }), false);
         }
     }

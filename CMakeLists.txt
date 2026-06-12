@@ -101,5 +101,6 @@ if(BOR_BUILD_TOOLS)
         BoREnhancerIR
         juce::juce_audio_utils
         juce::juce_dsp
-        juce::juce_recommended_config_flags)
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
 endif()

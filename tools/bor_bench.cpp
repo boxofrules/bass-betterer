@@ -11,6 +11,7 @@
 #include "../Source/PluginProcessor.h"
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
 
 // ---- BS.1770 K-weighting (pre-filter + RLB high-pass), 48 kHz coefficients ----
 struct KWeight
@@ -77,7 +78,11 @@ static std::unique_ptr<BoRBassEnhancerProcessor> makeProc (double sr, int block)
 static void setParam (BoRBassEnhancerProcessor& p, const juce::String& id, float plainValue)
 {
     auto* par = p.apvts.getParameter (id);
-    jassert (par != nullptr);
+    if (par == nullptr)   // a stale id would otherwise silently mis-calibrate the trims
+    {
+        std::fprintf (stderr, "bor-bench: unknown parameter '%s'\n", id.toRawUTF8());
+        std::exit (2);
+    }
     par->setValueNotifyingHost (par->convertTo0to1 (plainValue));
 }
 
