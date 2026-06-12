@@ -343,7 +343,8 @@ struct Analyzer : public juce::Component
             return;
         }
         on = true;
-        const float sr = p.getSampleRate() > 0 ? (float) p.getSampleRate() : 48000.0f;
+        const float sr  = p.getSampleRate() > 0 ? (float) p.getSampleRate() : 48000.0f;
+        const float nyq = sr * 0.5f;
 
         for (int w = 0; w < 2; ++w)   // 0 = processed output, 1 = raw DI
         {
@@ -373,6 +374,11 @@ struct Analyzer : public juce::Component
             };
             for (int i = 0; i < NPTS; ++i)
             {
+                auto& d = tr.disp[(size_t) i];
+                // the x-axis runs to 20 kHz regardless of rate: above Nyquist there is
+                // no signal, so fall to the floor instead of smearing the last bin
+                // across the top of the display (auval tests 11025/22050 Hz)
+                if (ptFreq ((float) i) >= nyq) { d *= 0.7f; continue; }
                 const float ba = ptFreq ((float) i - 0.5f) / binHz;
                 const float bb = ptFreq ((float) i + 0.5f) / binHz;
                 float mag;
@@ -389,7 +395,6 @@ struct Analyzer : public juce::Component
 
                 const float db   = juce::Decibels::gainToDecibels (mag / ((float) fftSize * 0.5f), -100.0f);
                 const float norm = juce::jlimit (0.0f, 1.0f, (db + 90.0f) / 90.0f);
-                auto& d = tr.disp[(size_t) i];
                 d = norm > d ? norm : d * 0.7f + norm * 0.3f;
             }
         }
@@ -651,7 +656,16 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         startTimerHz (30);
     }
 
-    ~Content() override { stopTimer(); }
+    ~Content() override
+    {
+        stopTimer();
+        // join the update check before teardown (worst case ~4 s on its first run,
+        // and only within the brief once-a-day check window)
+        if (updateThread != nullptr) updateThread->stopThread (5000);
+        // The A/B audition ends with the editor: leaving it engaged would keep the
+        // plugin silently passing raw DI with no visible indication in the host.
+        proc.setDiReference (false);
+    }
 
     void timerCallback() override
     {
@@ -697,11 +711,17 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     {
         auto* p = proc.apvts.getParameter ("analyzer");
         const auto v = freqView();
+        auto setAnalyzer = [p] (float val)   // gesture-bracketed: hosts in touch/latch
+        {                                    // automation write need to see the gesture
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (val);
+            p->endChangeGesture();
+        };
         if (! proc.analyzerEnabled())
-        { p->setValueNotifyingHost (1.0f); proc.apvts.state.setProperty ("freqView", "all", nullptr); }
+        { setAnalyzer (1.0f); proc.apvts.state.setProperty ("freqView", "all", nullptr); }
         else if (v == "all") proc.apvts.state.setProperty ("freqView", "pre",  nullptr);
         else if (v == "pre") proc.apvts.state.setProperty ("freqView", "post", nullptr);
-        else                 p->setValueNotifyingHost (0.0f);
+        else                 setAnalyzer (0.0f);
         refreshFreqButton();
     }
 
@@ -731,6 +751,42 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         updateLink.setVisible (true);
     }
 
+    // Owned, joinable thread (NOT Thread::launch): a detached thread could outlive
+    // the last plugin instance and execute unmapped code when the host unloads the
+    // bundle. The Content destructor joins it; the cache-file I/O stays off the
+    // message thread.
+    struct UpdateCheckThread : public juce::Thread
+    {
+        UpdateCheckThread (Content& c, juce::File f, juce::String cached)
+            : juce::Thread ("BBE update check"), owner (c), file (std::move (f)),
+              cachedTag (std::move (cached)) {}
+
+        void run() override
+        {
+            juce::String tag;
+            juce::URL url ("https://api.github.com/repos/boxofrules/bass-betterer/releases/latest");
+            if (auto stream = url.createInputStream (
+                    juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs (4000)))
+                tag = juce::JSON::parse (stream->readEntireStreamAsString())
+                          .getProperty ("tag_name", {}).toString();
+
+            juce::XmlElement xml ("UPDATE");
+            xml.setAttribute ("lastCheckMs", juce::String (juce::Time::currentTimeMillis()));
+            xml.setAttribute ("latestTag", tag.isNotEmpty() ? tag : cachedTag);
+            xml.writeTo (file, {});
+
+            if (threadShouldExit() || tag.isEmpty()) return;
+            juce::MessageManager::callAsync (
+                [safe = juce::Component::SafePointer<Content> (&owner), tag]
+                { if (safe != nullptr) safe->maybeShowUpdate (tag); });
+        }
+
+        Content& owner;
+        juce::File file;
+        juce::String cachedTag;
+    };
+
     void startUpdateCheck()
     {
         const auto f = proc.getUserPresetDir().getParentDirectory().getChildFile ("update_check.xml");
@@ -744,26 +800,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         maybeShowUpdate (cachedTag);
         if (juce::Time::currentTimeMillis() - last < 24LL * 3600 * 1000) return;
 
-        juce::Component::SafePointer<Content> safe (this);
-        juce::Thread::launch ([safe, f, cachedTag]
-        {
-            juce::String tag;
-            juce::URL url ("https://api.github.com/repos/boxofrules/bass-betterer/releases/latest");
-            if (auto stream = url.createInputStream (
-                    juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                        .withConnectionTimeoutMs (4000)))
-                tag = juce::JSON::parse (stream->readEntireStreamAsString())
-                          .getProperty ("tag_name", {}).toString();
-
-            juce::MessageManager::callAsync ([safe, f, cachedTag, tag]
-            {
-                juce::XmlElement xml ("UPDATE");
-                xml.setAttribute ("lastCheckMs", juce::String (juce::Time::currentTimeMillis()));
-                xml.setAttribute ("latestTag", tag.isNotEmpty() ? tag : cachedTag);
-                xml.writeTo (f, {});
-                if (safe != nullptr) safe->maybeShowUpdate (tag);
-            });
-        });
+        updateThread = std::make_unique<UpdateCheckThread> (*this, f, cachedTag);
+        updateThread->startThread();
     }
 
     void rebuildPresetMenu()
@@ -902,6 +940,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };
+    std::unique_ptr<UpdateCheckThread> updateThread;
     float cpuDisp = 0.0f;
 
     std::array<float, BoRBassEnhancerProcessor::NUM_CH + 1> meterLevel {};

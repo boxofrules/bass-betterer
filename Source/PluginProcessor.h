@@ -62,7 +62,9 @@ public:
     double getCpuLoad() const noexcept      { return loadMeasurer.getLoadAsProportion(); }
     int    getXRunCount() const noexcept    { return loadMeasurer.getXRunCount(); }
     int    getLastBlockSize() const noexcept{ return lastBlock.load (std::memory_order_relaxed); }
-    float  getFuzzOsLatency() const         { return fuzz[0].oversamplingLatency(); }
+    // cached at prepare time: reading the live Oversampling object from the UI
+    // thread would race prepareToPlay re-creating it
+    float  getFuzzOsLatency() const noexcept{ return fuzzOsLat.load (std::memory_order_relaxed); }
 
     // Presets (message thread). Per-project state already persists via get/setStateInformation;
     // these add portable named configs: a handful of factory presets + user save/recall to disk.
@@ -94,9 +96,10 @@ private:
     std::atomic<float>* pDiGain  = nullptr;    // DI blend strip (raw input, pre input-gain)
     std::atomic<float>* pDiMute  = nullptr;
     std::atomic<float>* pDiSolo  = nullptr;
-    std::atomic<float>* pDiPan   = nullptr;
     std::atomic<float>* pDiPhase = nullptr;
     std::atomic<float>* pDiDuck  = nullptr;
+    // di_pan / sub_pan still exist as parameters (state compatibility) but the DSP
+    // keeps both strips dead centre, so neither is cached or read.
 
     // UI meter feed — per-channel post-gain peak, published once per block.
     std::array<std::atomic<float>, NUM_CH> chLevel {};
@@ -121,6 +124,7 @@ private:
 
     juce::AudioProcessLoadMeasurer loadMeasurer;   // CPU % for the SYS info panel
     std::atomic<int> lastBlock { 0 };
+    std::atomic<float> fuzzOsLat { 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BoRBassEnhancerProcessor)
 };

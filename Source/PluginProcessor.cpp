@@ -72,7 +72,6 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pDiGain   = P ("di_gain");
     pDiMute   = P ("di_mute");
     pDiSolo   = P ("di_solo");
-    pDiPan    = P ("di_pan");
     pDiPhase  = P ("di_phase");
     pDiDuck   = P ("di_duck");
 }
@@ -164,6 +163,7 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     fuzz[1].configure ( 84.f, 0.2f, 0.7f, 0.8f, 4.0f, 1.0f,  -0.2f, -16.1f, { {0.65f,0.25f,0.85f,0.15f,0.0f,0.0f,0.2f,0.4f} });
     fuzz[2].configure ( 97.f, 0.2f, 0.7f, 1.0f, 2.8f, 0.65f, -1.2f, -11.4f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.35f,0.0f,0.0f} });
     for (auto& fz : fuzz) fz.prepare (sampleRate, samplesPerBlock);
+    fuzzOsLat.store (fuzz[0].oversamplingLatency(), std::memory_order_relaxed);
 
     juce::dsp::ProcessSpec stereoSpec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
     glueComp.prepare (stereoSpec);
