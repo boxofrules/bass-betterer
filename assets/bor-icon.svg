@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <!-- Box of Rules hex monogram on the brand ink tile (app/plugin icon source).
+       Rendered to assets/icon-{1024,256}.png for JUCE's ICON_BIG/ICON_SMALL. -->
+  <rect x="9" y="9" width="282" height="282" rx="64" fill="#0B0B0C"/>
+  <rect x="14.5" y="14.5" width="271" height="271" rx="58" fill="none" stroke="#2A2C30" stroke-width="3"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" fill="#69AFBF" d="M150.13,54.79l13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.94v40.83s-11.84,6.84-11.84,6.84l11.84,6.84v40.83s-27.52,15.89-27.52,15.89v-63.56h-41.28v87.39l-13.76,7.94-82.56-47.67v-40.83l11.84-6.84-11.84-6.84v-40.83l82.56-47.67ZM163.89,95.04v35.16l41.28,5.44v-25.58l-41.28-15.02ZM136.37,95.04l-41.28,15.02v25.57l41.28-5.44v-35.16ZM136.37,150.13h-41.28v40.07l41.28,15.03v-55.09Z"/>
+</svg>
