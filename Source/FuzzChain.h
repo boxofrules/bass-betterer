@@ -11,13 +11,18 @@ struct FuzzChain
 {
     // locked params (set per channel via configure)
     float drive = 120.0f, asym = 0.2f, hard = 0.7f, fizz = 0.8f, body = 2.8f, warmth = 0.6f, lo = 0.0f;
+    float level = 1.0f;              // output trim — matches fuzz loudness to the clean voicing
     std::array<float, 8> g { {} };   // per-band grit amounts (centres below)
 
     static constexpr std::array<float, 8> CENTRES { {100.f, 250.f, 470.f, 780.f, 1300.f, 2300.f, 3800.f, 6000.f} };
 
     void configure (float dr, float as, float hd, float fz, float bd, float wm, float low,
-                    std::array<float, 8> grit)
-    { drive = dr; asym = as; hard = hd; fizz = fz; body = bd; warmth = wm; lo = low; g = grit; }
+                    float levelDb, std::array<float, 8> grit)
+    { drive = dr; asym = as; hard = hd; fizz = fz; body = bd; warmth = wm; lo = low;
+      level = juce::Decibels::decibelsToGain (levelDb); g = grit; }
+
+    // base-rate latency the 4x oversampler adds to this path (sub-sample for the IIR halfband)
+    float oversamplingLatency() const { return os != nullptr ? os->getLatencyInSamples() : 0.0f; }
 
     void prepare (double sampleRate, int blockSize)
     {
@@ -32,7 +37,7 @@ struct FuzzChain
         os->initProcessing ((size_t) blockSize);
 
         juce::dsp::ProcessSpec mono { sampleRate, (juce::uint32) blockSize, 1 };
-        for (int b = 0; b < 8; ++b)
+        for (size_t b = 0; b < 8; ++b)
         {
             gritBP[b].prepare (mono);
             gritBP[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sr, CENTRES[b], 1.4f);
@@ -87,8 +92,8 @@ struct FuzzChain
             const float d2 = clip (d, 3.0f, asym, hard);       // grittier cascade
             const float diff = d2 - d;                          // extra harmonics to sprinkle per band
             float grit = 0.0f;
-            for (int b = 0; b < 8; ++b)
-                grit += g[(size_t) b] * gritBP[b].processSample (diff);
+            for (size_t b = 0; b < 8; ++b)
+                grit += g[b] * gritBP[b].processSample (diff);
             x[i] = (d + grit) * env[(size_t) i];                // restore the note's dynamics
         }
     }
@@ -103,7 +108,7 @@ struct FuzzChain
             v = warm1.processSample (v);
             v = warm2.processSample (v);
             if (lo < 0.0f) v = hpf.processSample (v);
-            x[i] = v;
+            x[i] = v * level;
         }
     }
 

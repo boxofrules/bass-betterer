@@ -1,6 +1,10 @@
 #include "PluginEditor.h"
 #include <cmath>
 
+#ifndef JucePlugin_VersionString
+ #define JucePlugin_VersionString "dev"   // console/tool builds (bor-bench)
+#endif
+
 // ============================================================================
 // Box of Rules brand tokens (from the design system colors_and_type.css).
 // ============================================================================
@@ -181,8 +185,8 @@ struct Knob : public juce::Component
 struct Strip : public juce::Component
 {
     Strip (BoRBassEnhancerProcessor& p, const juce::String& prefix, const juce::String& nm,
-           bool isFX_, bool hasPan_, FaderLnf& flnf, KnobLnf& klnf)
-        : isFX (isFX_), hasPan (hasPan_), chName (nm)
+           bool isFX_, bool hasPan_, bool hasAB_, FaderLnf& flnf, KnobLnf& klnf)
+        : isFX (isFX_), hasPan (hasPan_), hasAB (hasAB_), chName (nm)
     {
         gain.setSliderStyle (juce::Slider::LinearVertical);
         gain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -217,6 +221,8 @@ struct Strip : public juce::Component
             addAndMakeVisible (pan);
             panAtt = std::make_unique<SA> (p.apvts, prefix + "_pan", pan);
         }
+        if (hasAB)   // DI strip: A/B audition lives where pan would (owner wires onClick)
+            ab = makeTog ("A/B", bor::amber, bor::ink, "Audition the raw DI against the processed sound");
         refreshMuted();
     }
 
@@ -289,7 +295,8 @@ struct Strip : public juce::Component
         if (fuzz != nullptr) fuzz->setBounds (fuzzRow);
 
         r.removeFromTop (12);
-        if (hasPan) pan.setBounds (r.removeFromBottom (32).withSizeKeepingCentre (34, 30));
+        if (hasPan)      pan.setBounds (r.removeFromBottom (32).withSizeKeepingCentre (34, 30));
+        else if (hasAB)  ab->setBounds (r.removeFromBottom (32).withSizeKeepingCentre (52, 22));
         readoutRect = r.removeFromBottom (22);
         r.removeFromBottom (8);
 
@@ -299,10 +306,10 @@ struct Strip : public juce::Component
         meterRect = block.removeFromLeft (8);
     }
 
-    bool isFX, hasPan;
+    bool isFX, hasPan, hasAB;
     juce::String chName;
     juce::Slider gain, pan;
-    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz;
+    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz, ab;
     std::unique_ptr<SA> gainAtt, panAtt;
     std::unique_ptr<BA> muteAtt, soloAtt, phaseAtt, scAtt, fuzzAtt;
     float level = 0.0f;
@@ -310,46 +317,86 @@ struct Strip : public juce::Component
     juce::Rectangle<int> nameRect, readoutRect, meterRect;
 };
 
-// ---- spectrum analyzer (FFT of the output; fed from the processor fifo) -----
+// ---- spectrum analyzer (FFT of the output + the raw DI; processor fifos) ----
 struct Analyzer : public juce::Component
 {
-    static constexpr int order = 11, fftSize = 1 << order, ringMask = fftSize - 1, NPTS = 200;
+    // 8192-sample FFT -> ~5.9 Hz bins at 48 kHz: the low end renders as a curve
+    // instead of the stair-steps a 2048 FFT produced below ~500 Hz.
+    static constexpr int order = 13, fftSize = 1 << order, ringMask = fftSize - 1, NPTS = 200;
 
     Analyzer() : fft (order), window ((size_t) fftSize, juce::dsp::WindowingFunction<float>::hann) {}
+
+    struct Trace
+    {
+        juce::HeapBlock<float> ring { (size_t) fftSize, true };
+        int ringW = 0;
+        std::array<float, NPTS> disp {};
+    };
+
+    static float ptFreq (float i) { return 20.0f * std::pow (1000.0f, i / (float) (NPTS - 1)); } // 20..20k
 
     void update (BoRBassEnhancerProcessor& p)
     {
         if (! p.analyzerEnabled())
         {
-            if (on) { on = false; disp.fill (0.0f); repaint(); }
+            if (on) { on = false; for (auto& t : traces) t.disp.fill (0.0f); repaint(); }
             return;
         }
         on = true;
+        const float sr  = p.getSampleRate() > 0 ? (float) p.getSampleRate() : 48000.0f;
+        const float nyq = sr * 0.5f;
 
-        float tmp[fftSize];
-        int total = 0, got;
-        while ((got = p.readAnalyzer (tmp, fftSize)) > 0)
+        for (int w = 0; w < 2; ++w)   // 0 = processed output, 1 = raw DI
         {
-            for (int i = 0; i < got; ++i) ring[(size_t) (ringW++ & ringMask)] = tmp[i];
-            total += got;
-            if (total > (1 << 15)) break;
-        }
+            auto& tr = traces[(size_t) w];
+            int total = 0, got;
+            while ((got = p.readAnalyzer (w, tmp, fftSize)) > 0)
+            {
+                for (int i = 0; i < got; ++i) tr.ring[(size_t) (tr.ringW++ & ringMask)] = tmp[i];
+                total += got;
+                if (total > (1 << 15)) break;
+            }
 
-        for (int i = 0; i < fftSize; ++i)
-            fftData[(size_t) i] = ring[(size_t) ((ringW - fftSize + i) & ringMask)];
-        window.multiplyWithWindowingTable (fftData, (size_t) fftSize);
-        fft.performFrequencyOnlyForwardTransform (fftData);
+            for (int i = 0; i < fftSize; ++i)
+                fftData[(size_t) i] = tr.ring[(size_t) ((tr.ringW - fftSize + i) & ringMask)];
+            window.multiplyWithWindowingTable (fftData, (size_t) fftSize);
+            fft.performFrequencyOnlyForwardTransform (fftData);
 
-        const double sr = p.getSampleRate() > 0 ? p.getSampleRate() : 48000.0;
-        for (int i = 0; i < NPTS; ++i)
-        {
-            const float freq = 20.0f * std::pow (1000.0f, (float) i / (float) (NPTS - 1)); // 20..20k
-            int bin = (int) std::round (freq / (float) sr * (float) fftSize);
-            bin = juce::jlimit (1, fftSize / 2 - 1, bin);
-            const float mag  = fftData[(size_t) bin] / ((float) fftSize * 0.5f);
-            const float db   = juce::Decibels::gainToDecibels (mag, -100.0f);
-            const float norm = juce::jlimit (0.0f, 1.0f, (db + 90.0f) / 90.0f);
-            disp[(size_t) i] = norm > disp[(size_t) i] ? norm : disp[(size_t) i] * 0.7f + norm * 0.3f;
+            // bins this display point spans (log axis): average their power when the
+            // span is wide (HF: no skipped peaks), interpolate between neighbouring
+            // bins when it is narrow (LF: no stair-steps)
+            const float binHz = sr / (float) fftSize;
+            auto magAt = [this] (float bin)
+            {
+                const int i0 = juce::jlimit (1, fftSize / 2 - 2, (int) bin);
+                const float frac = juce::jlimit (0.0f, 1.0f, bin - (float) i0);
+                return fftData[(size_t) i0] * (1.0f - frac) + fftData[(size_t) (i0 + 1)] * frac;
+            };
+            for (int i = 0; i < NPTS; ++i)
+            {
+                auto& d = tr.disp[(size_t) i];
+                // the x-axis runs to 20 kHz regardless of rate: above Nyquist there is
+                // no signal, so fall to the floor instead of smearing the last bin
+                // across the top of the display (auval tests 11025/22050 Hz)
+                if (ptFreq ((float) i) >= nyq) { d *= 0.7f; continue; }
+                const float ba = ptFreq ((float) i - 0.5f) / binHz;
+                const float bb = ptFreq ((float) i + 0.5f) / binHz;
+                float mag;
+                if (bb - ba >= 1.0f)
+                {
+                    const int s = juce::jlimit (1, fftSize / 2 - 1, (int) std::ceil (ba));
+                    const int e = juce::jlimit (s, fftSize / 2 - 1, (int) bb);
+                    float pw = 0.0f;
+                    for (int b = s; b <= e; ++b) pw += fftData[(size_t) b] * fftData[(size_t) b];
+                    mag = std::sqrt (pw / (float) (e - s + 1));
+                }
+                else
+                    mag = magAt (ptFreq ((float) i) / binHz);
+
+                const float db   = juce::Decibels::gainToDecibels (mag / ((float) fftSize * 0.5f), -100.0f);
+                const float norm = juce::jlimit (0.0f, 1.0f, (db + 90.0f) / 90.0f);
+                d = norm > d ? norm : d * 0.7f + norm * 0.3f;
+            }
         }
         repaint();
     }
@@ -393,37 +440,121 @@ struct Analyzer : public juce::Component
 
         if (on)
         {
-            juce::Path fill, line;
-            fill.startNewSubPath (inner.getX(), inner.getBottom());
-            for (int i = 0; i < NPTS; ++i)
+            auto tracePath = [&] (const Trace& tr, juce::Path& line)
             {
-                const float x = inner.getX() + inner.getWidth() * (float) i / (float) (NPTS - 1);
-                const float y = inner.getBottom() - disp[(size_t) i] * inner.getHeight();
-                fill.lineTo (x, y);
-                if (i == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
+                for (int i = 0; i < NPTS; ++i)
+                {
+                    const float x = inner.getX() + inner.getWidth() * (float) i / (float) (NPTS - 1);
+                    const float y = inner.getBottom() - tr.disp[(size_t) i] * inner.getHeight();
+                    if (i == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
+                }
+            };
+
+            // raw DI underneath in grey, processed output on top in signal cyan
+            if (view != 2)   // ALL or PRE
+            {
+                juce::Path diLine;
+                tracePath (traces[1], diLine);
+                g.setColour (bor::mute2.withAlpha (0.85f));
+                g.strokePath (diLine, juce::PathStrokeType (view == 1 ? 1.5f : 1.0f));
             }
-            fill.lineTo (inner.getRight(), inner.getBottom());
-            fill.closeSubPath();
-            g.setColour (bor::accent.withAlpha (0.16f)); g.fillPath (fill);
-            g.setColour (bor::accent);                   g.strokePath (line, juce::PathStrokeType (1.5f));
+            if (view != 1)   // ALL or POST
+            {
+                juce::Path outLine;
+                tracePath (traces[0], outLine);
+                juce::Path fill (outLine);
+                fill.lineTo (inner.getRight(), inner.getBottom());
+                fill.lineTo (inner.getX(), inner.getBottom());
+                fill.closeSubPath();
+                g.setColour (bor::accent.withAlpha (0.16f)); g.fillPath (fill);
+                g.setColour (bor::accent);                   g.strokePath (outLine, juce::PathStrokeType (1.5f));
+            }
         }
 
-        g.setColour (bor::mute2);
+        // header: title + colour legend
         g.setFont (bor::mono (9.0f));
+        auto hdr = b.toNearestInt().reduced (5, 4);
+        g.setColour (bor::mute2);
         g.drawText (on ? juce::String::fromUTF8 ("SPECTRUM  \xC2\xB7  Hz") : juce::String ("SPECTRUM // OFF"),
-                    b.toNearestInt().reduced (5, 4),
-                    juce::Justification::topLeft);
+                    hdr, juce::Justification::topLeft);
+        if (on)
+        {
+            auto leg = hdr.removeFromTop (10);
+            leg.removeFromLeft (110);
+            if (view != 2)
+            { g.setColour (bor::mute2);  g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 DI"),  leg.removeFromLeft (38), juce::Justification::topLeft); }
+            if (view != 1)
+            { g.setColour (bor::accent); g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 OUT"), leg.removeFromLeft (44), juce::Justification::topLeft); }
+        }
+        g.setColour (bor::mute2);
         g.drawText ("dB", juce::Rectangle<int> ((int) inner.getRight() - 26, (int) inner.getY() + 3, 22, 10),
                     juce::Justification::topRight);
     }
 
     juce::dsp::FFT fft;
     juce::dsp::WindowingFunction<float> window;
-    float fftData[2 * fftSize] = {};
-    float ring[fftSize] = {};
-    int   ringW = 0;
-    std::array<float, NPTS> disp {};
-    bool  on = true;
+    juce::HeapBlock<float> fftData { (size_t) (2 * fftSize), true };
+    juce::HeapBlock<float> tmp     { (size_t) fftSize, true };
+    std::array<Trace, 2> traces;   // [0] processed output, [1] raw DI
+    bool on = true;
+    int  view = 0;                 // 0 = ALL, 1 = PRE (DI only), 2 = POST (out only)
+};
+
+// ---- SYS overlay: live engine/host stats (CPU, latency, buffer, format) -----
+// Answers the "what is the CPU load / latency / oversampling" questions in-product.
+struct InfoPanel : public juce::Component
+{
+    InfoPanel()
+    {
+        setInterceptsMouseClicks (true, true);   // children (COPY) must get clicks
+        copyBtn = std::make_unique<SquareButton> ("COPY", bor::accent, bor::accentOn);
+        copyBtn->setClickingTogglesState (false);
+        copyBtn->setTooltip ("Copy these stats to the clipboard (for bug reports)");
+        copyBtn->onClick = [this]
+        {
+            juce::StringArray out { "Bass Better-er SYS" };
+            for (const auto& l : lines)
+                out.add (l.upToFirstOccurrenceOf ("|", false, false).paddedRight (' ', 13)
+                         + l.fromFirstOccurrenceOf ("|", false, false));
+            juce::SystemClipboard::copyTextToClipboard (out.joinIntoString ("\n"));
+            copyBtn->setButtonText ("COPIED");
+            juce::Timer::callAfterDelay (900, [sp = juce::Component::SafePointer<SquareButton> (copyBtn.get())]
+                                              { if (sp != nullptr) sp->setButtonText ("COPY"); });
+        };
+        addAndMakeVisible (*copyBtn);
+    }
+
+    void resized() override { copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20); }
+
+    // each line is "KEY|value"
+    void setLines (juce::StringArray l) { if (l != lines) { lines = std::move (l); repaint(); } }
+    void mouseDown (const juce::MouseEvent&) override { if (onDismiss) onDismiss(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto b = getLocalBounds().toFloat();
+        g.setColour (bor::ink.withAlpha (0.97f)); g.fillRect (b);
+        g.setColour (bor::accent);                g.drawRect (b, 1.0f);
+        auto r = getLocalBounds().reduced (16, 12);
+        g.setColour (bor::bone);
+        g.setFont (bor::mono (11.0f, true));
+        g.drawText ("SYS // ENGINE", r.removeFromTop (18), juce::Justification::topLeft);
+        r.removeFromTop (4);
+        g.setFont (bor::mono (11.0f));
+        for (const auto& l : lines)
+        {
+            auto row = r.removeFromTop (16);
+            g.setColour (bor::mute2);
+            g.drawText (l.upToFirstOccurrenceOf ("|", false, false), row.removeFromLeft (110),
+                        juce::Justification::centredLeft);
+            g.setColour (bor::bone);
+            g.drawText (l.fromFirstOccurrenceOf ("|", false, false), row, juce::Justification::centredLeft);
+        }
+    }
+
+    std::function<void()> onDismiss;
+    juce::StringArray lines;
+    std::unique_ptr<SquareButton> copyBtn;
 };
 
 static void drawRegMark (juce::Graphics& g, int x, int y)
@@ -471,21 +602,49 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         rebuildPresetMenu();
         presetBox.onChange = [this] { presetChosen(); };
 
-        // DI blend strip first, then the 8 voicing layers
-        strips.add (new bbe::Strip (proc, "di", "DI", false, stereo, faderLnf, knobLnf));
+        // DI blend strip first (no pan — A/B audition sits there instead), then the
+        // 8 voicing layers. SUB has no pan either: the lows stay dead centre.
+        strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, knobLnf));
         for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
         {
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
-            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX, stereo, faderLnf, knobLnf));
+            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
+                                        stereo && c != 0, false, faderLnf, knobLnf));
         }
         for (auto* s : strips) addAndMakeVisible (s);
 
+        // A/B audition — a listening tool, deliberately not a saved parameter
+        strips[0]->ab->setToggleState (proc.getDiReference(), juce::dontSendNotification);
+        strips[0]->ab->onClick = [this] { proc.setDiReference (strips[0]->ab->getToggleState()); };
+
         analyzer = std::make_unique<bbe::Analyzer>();
         addAndMakeVisible (*analyzer);
+
+        // FREQ cycles the spectrum display: OFF -> ALL -> PRE (DI) -> POST (plugin).
+        // OFF drops the analyzer feed (the CPU saver); the view mode persists with
+        // the session as a non-automatable state property.
         freq = std::make_unique<bbe::SquareButton> ("FREQ", bor::accent, bor::accentOn);
-        freq->setTooltip ("Spectrum display on/off (CPU)");
+        freq->setTooltip ("Spectrum display: click to cycle OFF / ALL / PRE (DI) / POST");
+        freq->setClickingTogglesState (false);
+        freq->onClick = [this] { cycleFreqMode(); };
         addAndMakeVisible (*freq);
-        freqAtt = std::make_unique<bbe::BA> (proc.apvts, "analyzer", *freq);
+        refreshFreqButton();
+
+        // SYS — engine stats overlay
+        sys = std::make_unique<bbe::SquareButton> ("SYS", bor::accent, bor::accentOn);
+        sys->setTooltip ("Engine stats: CPU, latency, buffer, format");
+        sys->onClick = [this] { info->setVisible (sys->getToggleState()); info->toFront (false); };
+        addAndMakeVisible (*sys);
+        info = std::make_unique<bbe::InfoPanel>();
+        info->onDismiss = [this] { sys->setToggleState (false, juce::dontSendNotification);
+                                   info->setVisible (false); };
+        addChildComponent (*info);
+
+        // update notice — populated by the (at most daily) release check
+        updateLink.setColour (juce::HyperlinkButton::textColourId, bor::amber);
+        updateLink.setFont (bor::mono (11.0f, true), false, juce::Justification::centredRight);
+        addChildComponent (updateLink);
+        startUpdateCheck();
 
         inKnob   = std::make_unique<bbe::Knob> (proc, "in_gain",  "INPUT",  1, knobLnf);
         glueKnob = std::make_unique<bbe::Knob> (proc, "glue",     "GLUE",   2, knobLnf);
@@ -497,7 +656,19 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         startTimerHz (30);
     }
 
-    ~Content() override { stopTimer(); }
+    ~Content() override
+    {
+        stopTimer();
+        // dismiss the save dialog while `this` is still intact (unique_ptr::reset
+        // nulls before deleting, so the modal callback's reset becomes a no-op)
+        saveWin.reset();
+        // join the update check before teardown (worst case ~2 s on its first run,
+        // and only within the brief once-a-day check window)
+        if (updateThread != nullptr) updateThread->stopThread (5000);
+        // The A/B audition ends with the editor: leaving it engaged would keep the
+        // plugin silently passing raw DI with no visible indication in the host.
+        proc.setDiReference (false);
+    }
 
     void timerCallback() override
     {
@@ -512,6 +683,128 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
             strips[c + 1]->setLevel (smooth (meterLevel[(size_t) (c + 1)], proc.getChannelLevel (c)));
         analyzer->update (proc);
+
+        refreshFreqButton();   // host automation can flip the analyzer param under us
+
+        if (info->isVisible())
+        {
+            const float load = (float) proc.getCpuLoad();
+            cpuDisp = load > cpuDisp ? load : cpuDisp * 0.85f + load * 0.15f;
+            info->setLines ({
+                "VERSION|"     + juce::String (JucePlugin_VersionString),
+                "FORMAT|"      + juce::String (juce::AudioProcessor::getWrapperTypeDescription (proc.wrapperType)),
+                "HOST|"        + juce::String (juce::PluginHostType().getHostDescription()),
+                "OS|"          + juce::SystemStats::getOperatingSystemName(),
+                "OUTPUT|"      + juce::String (proc.isStereo() ? "STEREO" : "MONO"),
+                "SAMPLE RATE|" + juce::String (proc.getSampleRate(), 0) + " Hz",
+                "BLOCK|"       + juce::String (proc.getLastBlockSize()) + " smp (host)",
+                "LATENCY|"     + juce::String (proc.getLatencySamples()) + " smp (zero-latency convolution)",
+                "FUZZ OS|4x, +" + juce::String (proc.getFuzzOsLatency(), 2) + " smp in the fuzz path",
+                "CPU|"         + juce::String (cpuDisp * 100.0f, 1) + " % of one core",
+                "XRUNS|"       + juce::String (proc.getXRunCount()) + " (callbacks over budget)",
+            });
+        }
+    }
+
+    // ---- FREQ display cycle: OFF -> ALL -> PRE (DI only) -> POST (plugin only) ----
+    juce::String freqView() const
+    { return proc.apvts.state.getProperty ("freqView", "all").toString(); }
+
+    void cycleFreqMode()
+    {
+        auto* p = proc.apvts.getParameter ("analyzer");
+        const auto v = freqView();
+        auto setAnalyzer = [p] (float val)   // gesture-bracketed: hosts in touch/latch
+        {                                    // automation write need to see the gesture
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (val);
+            p->endChangeGesture();
+        };
+        if (! proc.analyzerEnabled())
+        { setAnalyzer (1.0f); proc.apvts.state.setProperty ("freqView", "all", nullptr); }
+        else if (v == "all") proc.apvts.state.setProperty ("freqView", "pre",  nullptr);
+        else if (v == "pre") proc.apvts.state.setProperty ("freqView", "post", nullptr);
+        else                 setAnalyzer (0.0f);
+        refreshFreqButton();
+    }
+
+    void refreshFreqButton()
+    {
+        const bool on = proc.analyzerEnabled();
+        const auto v  = freqView();
+        freq->setToggleState (on, juce::dontSendNotification);
+        freq->setButtonText (! on ? "FREQ:OFF" : v == "pre" ? "FREQ:PRE" : v == "post" ? "FREQ:POST" : "FREQ:ALL");
+        analyzer->view = v == "pre" ? 1 : v == "post" ? 2 : 0;
+    }
+
+    // ---- update notice: GitHub latest-release tag, checked at most once a day ----
+    static std::array<int, 3> parseVer (juce::String s)
+    {
+        s = s.trim().trimCharactersAtStart ("vV");
+        const auto t = juce::StringArray::fromTokens (s, ".", "");
+        return { t.size() > 0 ? t[0].getIntValue() : 0,
+                 t.size() > 1 ? t[1].getIntValue() : 0,
+                 t.size() > 2 ? t[2].getIntValue() : 0 };
+    }
+
+    void maybeShowUpdate (const juce::String& tag)
+    {
+        if (tag.isEmpty() || ! (parseVer (JucePlugin_VersionString) < parseVer (tag))) return;
+        updateLink.setButtonText (juce::String::fromUTF8 ("UPDATE \xE2\x86\x92 ") + tag);
+        updateLink.setVisible (true);
+    }
+
+    // Owned, joinable thread (NOT Thread::launch): a detached thread could outlive
+    // the last plugin instance and execute unmapped code when the host unloads the
+    // bundle. The Content destructor joins it; the cache-file I/O stays off the
+    // message thread.
+    struct UpdateCheckThread : public juce::Thread
+    {
+        UpdateCheckThread (Content& c, juce::File f, juce::String cached)
+            : juce::Thread ("BBE update check"), owner (c), file (std::move (f)),
+              cachedTag (std::move (cached)) {}
+
+        void run() override
+        {
+            juce::String tag;
+            juce::URL url ("https://api.github.com/repos/boxofrules/bass-betterer/releases/latest");
+            if (auto stream = url.createInputStream (
+                    juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs (2000)))   // also bounds the dtor join
+                tag = juce::JSON::parse (stream->readEntireStreamAsString())
+                          .getProperty ("tag_name", {}).toString();
+
+            juce::XmlElement xml ("UPDATE");
+            xml.setAttribute ("lastCheckMs", juce::String (juce::Time::currentTimeMillis()));
+            xml.setAttribute ("latestTag", tag.isNotEmpty() ? tag : cachedTag);
+            xml.writeTo (file, {});
+
+            if (threadShouldExit() || tag.isEmpty()) return;
+            juce::MessageManager::callAsync (
+                [safe = juce::Component::SafePointer<Content> (&owner), tag]
+                { if (safe != nullptr) safe->maybeShowUpdate (tag); });
+        }
+
+        Content& owner;
+        juce::File file;
+        juce::String cachedTag;
+    };
+
+    void startUpdateCheck()
+    {
+        const auto f = proc.getUserPresetDir().getParentDirectory().getChildFile ("update_check.xml");
+        juce::String cachedTag;
+        juce::int64 last = 0;
+        if (auto xml = juce::XmlDocument::parse (f))
+        {
+            cachedTag = xml->getStringAttribute ("latestTag");
+            last = xml->getStringAttribute ("lastCheckMs").getLargeIntValue();
+        }
+        maybeShowUpdate (cachedTag);
+        if (juce::Time::currentTimeMillis() - last < 24LL * 3600 * 1000) return;
+
+        updateThread = std::make_unique<UpdateCheckThread> (*this, f, cachedTag);
+        updateThread->startThread();
     }
 
     void rebuildPresetMenu()
@@ -553,14 +846,19 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             saveWin->addTextEditor ("name", "My Preset");
             saveWin->addButton ("Save",   1, juce::KeyPress (juce::KeyPress::returnKey));
             saveWin->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            saveWin->enterModalState (true, juce::ModalCallbackFunction::create ([this] (int r)
+            // SafePointer: if Content is being destroyed (host force-closes the editor
+            // with the dialog open), the AlertWindow's destructor fires this callback
+            // mid-teardown — touching members then is use-after-free territory
+            saveWin->enterModalState (true, juce::ModalCallbackFunction::create (
+                [safe = juce::Component::SafePointer<Content> (this)] (int r)
             {
+                if (safe == nullptr) return;
                 if (r == 1)
                 {
-                    const auto nm = saveWin->getTextEditorContents ("name").trim();
-                    if (nm.isNotEmpty()) { proc.saveUserPreset (nm); rebuildPresetMenu(); }
+                    const auto nm = safe->saveWin->getTextEditorContents ("name").trim();
+                    if (nm.isNotEmpty()) { safe->proc.saveUserPreset (nm); safe->rebuildPresetMenu(); }
                 }
-                saveWin.reset();
+                safe->saveWin.reset();
             }), false);
         }
     }
@@ -595,6 +893,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         wordmark.setBounds (padX + 34 + 14, cy - 13, 300, 26);
         modeLbl.setBounds  (header.getRight() - padX - 70, cy - 8, 70, 16);
         presetBox.setBounds (header.getRight() - padX - 70 - 12 - 220, cy - 13, 220, 26);
+        sys->setBounds (presetBox.getX() - 12 - 44, cy - 13, 44, 26);
+        updateLink.setBounds (sys->getX() - 12 - 170, cy - 13, 170, 26);
+        info->setBounds (getLocalBounds().withSizeKeepingCentre (430, 262));
 
         hdrRuleY = r.getY();
         r.removeFromTop (1);
@@ -621,9 +922,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // spectrum analyzer fills the left, with the FREQ toggle above it
+        // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
-        freq->setBounds (left.removeFromTop (24).removeFromLeft (70));
+        freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
 
@@ -643,9 +944,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<juce::AlertWindow> saveWin;
     juce::OwnedArray<bbe::Strip> strips;
     std::unique_ptr<bbe::Analyzer> analyzer;
-    std::unique_ptr<bbe::SquareButton> freq;
-    std::unique_ptr<bbe::BA> freqAtt;
+    std::unique_ptr<bbe::SquareButton> freq, sys;
+    std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
+    juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };
+    std::unique_ptr<UpdateCheckThread> updateThread;
+    float cpuDisp = 0.0f;
 
     std::array<float, BoRBassEnhancerProcessor::NUM_CH + 1> meterLevel {};
     int hdrRuleY = 0, botRuleY = 0, footRuleY = 0;
