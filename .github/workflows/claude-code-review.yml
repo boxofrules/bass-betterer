@@ -4,7 +4,8 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    # reopened: close + reopen a PR to re-trigger a review on demand
+    types: [opened, ready_for_review, reopened]
 
 jobs:
   claude-review:
