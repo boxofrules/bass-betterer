@@ -9,9 +9,11 @@ BoRBassEnhancerProcessor::channels = {{
     { "sub",     "SUB",                false, false,   0.0f, false },
     { "lowcln1", "LOW CLEAN BAND 1",   false, false,  -2.0f, false },
     { "lowcln2", "LOW CLEAN BAND 2",   false, false,  -5.0f, false },
-    { "lofx57",  "LOW FX 57",          true,  false,  -4.0f, false },
-    { "lofx421", "LOW FX 421",         true,  false,  -8.0f, false },
-    { "lofxtwt", "LOW FX TWEETER",     true,  false, -14.0f, false },
+    // FX defaults sit |fuzz trim| above the old -4/-8/-14 so the shipped fuzz-on
+    // tone is unchanged now the fuzz path is loudness-matched to clean (see below)
+    { "lofx57",  "LOW FX 57",          true,  false,   7.2f, false },
+    { "lofx421", "LOW FX 421",         true,  false,   8.1f, false },
+    { "lofxtwt", "LOW FX TWEETER",     true,  false,  -2.6f, false },
     { "roomnear","ROOM NEAR",          false, true,  -60.0f, true  },
     { "roomfar", "ROOM FAR",           false, true,  -60.0f, true  },
 }};
@@ -155,10 +157,12 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     }
 
     // LO FX fuzz chains — per-channel locked settings (drive,asym,hard,fizz,
-    // body,warmth,low, 8 grit bands).
-    fuzz[0].configure (150.f, 0.2f, 0.7f, 0.8f, 2.8f, 0.65f, -0.2f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.45f,0.8f,0.25f} });
-    fuzz[1].configure ( 84.f, 0.2f, 0.7f, 0.8f, 4.0f, 1.0f,  -0.2f, { {0.65f,0.25f,0.85f,0.15f,0.0f,0.0f,0.2f,0.4f} });
-    fuzz[2].configure ( 97.f, 0.2f, 0.7f, 1.0f, 2.8f, 0.65f, -1.2f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.35f,0.0f,0.0f} });
+    // body,warmth,low, level trim, 8 grit bands). The level trim equalises the
+    // fuzz loudness to the clean voicing at the same fader, so toggling FUZZ
+    // doesn't jump (K-weighted match measured with `tools/bor-bench cal`).
+    fuzz[0].configure (150.f, 0.2f, 0.7f, 0.8f, 2.8f, 0.65f, -0.2f, -11.2f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.45f,0.8f,0.25f} });
+    fuzz[1].configure ( 84.f, 0.2f, 0.7f, 0.8f, 4.0f, 1.0f,  -0.2f, -16.1f, { {0.65f,0.25f,0.85f,0.15f,0.0f,0.0f,0.2f,0.4f} });
+    fuzz[2].configure ( 97.f, 0.2f, 0.7f, 1.0f, 2.8f, 0.65f, -1.2f, -11.4f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.35f,0.0f,0.0f} });
     for (auto& fz : fuzz) fz.prepare (sampleRate, samplesPerBlock);
 
     juce::dsp::ProcessSpec stereoSpec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
@@ -179,34 +183,44 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     scAtk = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.005));
     scRel = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.140));
 
-    analyzerBuf.setSize (1, analyzerFifo.getTotalSize());
-    analyzerBuf.clear();
-    analyzerFifo.reset();
+    for (int w = 0; w < 2; ++w)
+    {
+        analyzerBuf[(size_t) w].setSize (1, analyzerFifo[(size_t) w].getTotalSize());
+        analyzerBuf[(size_t) w].clear();
+        analyzerFifo[(size_t) w].reset();
+    }
+
+    // DI reference A/B crossfade (~10 ms) + load measurement for the SYS panel
+    abXf = 0.0f;
+    abCoef = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.010));
+    loadMeasurer.reset (sampleRate, samplesPerBlock);
 }
 
-// ---- spectrum analyzer SPSC fifo --------------------------------------------
-void BoRBassEnhancerProcessor::writeAnalyzer (const float* mono, int n)
+// ---- spectrum analyzer SPSC fifos -------------------------------------------
+void BoRBassEnhancerProcessor::writeAnalyzer (int which, const float* mono, int n)
 {
-    const int toWrite = juce::jmin (analyzerFifo.getFreeSpace(), n);
+    auto& fifo = analyzerFifo[(size_t) which];
+    const int toWrite = juce::jmin (fifo.getFreeSpace(), n);
     if (toWrite <= 0) return;
     int s1, sz1, s2, sz2;
-    analyzerFifo.prepareToWrite (toWrite, s1, sz1, s2, sz2);
-    auto* buf = analyzerBuf.getWritePointer (0);
+    fifo.prepareToWrite (toWrite, s1, sz1, s2, sz2);
+    auto* buf = analyzerBuf[(size_t) which].getWritePointer (0);
     if (sz1 > 0) juce::FloatVectorOperations::copy (buf + s1, mono, sz1);
     if (sz2 > 0) juce::FloatVectorOperations::copy (buf + s2, mono + sz1, sz2);
-    analyzerFifo.finishedWrite (toWrite);
+    fifo.finishedWrite (toWrite);
 }
 
-int BoRBassEnhancerProcessor::readAnalyzer (float* dest, int maxSamples)
+int BoRBassEnhancerProcessor::readAnalyzer (int which, float* dest, int maxSamples)
 {
-    const int toRead = juce::jmin (analyzerFifo.getNumReady(), maxSamples);
+    auto& fifo = analyzerFifo[(size_t) which];
+    const int toRead = juce::jmin (fifo.getNumReady(), maxSamples);
     if (toRead <= 0) return 0;
     int s1, sz1, s2, sz2;
-    analyzerFifo.prepareToRead (toRead, s1, sz1, s2, sz2);
-    const auto* buf = analyzerBuf.getReadPointer (0);
+    fifo.prepareToRead (toRead, s1, sz1, s2, sz2);
+    const auto* buf = analyzerBuf[(size_t) which].getReadPointer (0);
     if (sz1 > 0) juce::FloatVectorOperations::copy (dest, buf + s1, sz1);
     if (sz2 > 0) juce::FloatVectorOperations::copy (dest + sz1, buf + s2, sz2);
-    analyzerFifo.finishedRead (toRead);
+    fifo.finishedRead (toRead);
     return toRead;
 }
 
@@ -227,6 +241,8 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const int nIn = getTotalNumInputChannels();
     const int n   = buffer.getNumSamples();
     numOut = getTotalNumOutputChannels();
+    juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer (loadMeasurer, n);
+    lastBlock.store (n, std::memory_order_relaxed);
 
     // --- input: dry DI (pre-gain, for the DI blend) + mono with input-gain (pushes fuzz) ---
     const float inG = juce::Decibels::decibelsToGain (pInGain->load());
@@ -374,26 +390,76 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         for (int s = 0; s < n; ++s) buffer.getWritePointer (0)[s] = (outL[s] + outR[s]) * 0.5f * outG;
     }
 
-    // --- spectrum analyzer feed: final output mono, only when the display is on ---
+    // --- DI reference A/B: crossfade the host buffer toward the raw DI ---
+    const float abTarget = abDi.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
+    if (abXf > 1.0e-4f || abTarget > 0.0f)
+    {
+        for (int s = 0; s < n; ++s)
+        {
+            abXf += abCoef * (abTarget - abXf);
+            for (int ch = 0; ch < juce::jmin (numOut, 2); ++ch)
+            {
+                auto* o = buffer.getWritePointer (ch);
+                o[s] += abXf * (dry[s] - o[s]);
+            }
+        }
+    }
+    else abXf = 0.0f;
+
+    // --- spectrum analyzer feeds: what you hear (post, incl. A/B) + the raw DI ---
     if (analyzerEnabled())
     {
         auto* a = work.getWritePointer (0);
-        for (int s = 0; s < n; ++s) a[s] = (outL[s] + outR[s]) * 0.5f * outG;
-        writeAnalyzer (a, n);
+        if (numOut >= 2)
+            for (int s = 0; s < n; ++s) a[s] = (buffer.getReadPointer (0)[s] + buffer.getReadPointer (1)[s]) * 0.5f;
+        else
+            juce::FloatVectorOperations::copy (a, buffer.getReadPointer (0), n);
+        writeAnalyzer (0, a, n);
+        writeAnalyzer (1, dry, n);
     }
 }
 
 void BoRBassEnhancerProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml())
+    {
+        xml->setAttribute ("stateVersion", 2);
         copyXmlToBinary (*xml, destData);
+    }
+}
+
+// stateVersion < 2 predates the fuzz loudness match (the fuzz path now sits
+// 11-16 dB lower). Bump the gain of strips that were saved with fuzz engaged
+// so old sessions keep their mix.
+static void migrateState (juce::XmlElement& xml)
+{
+    if (xml.getIntAttribute ("stateVersion", 1) >= 2) return;
+    struct Fix { const char* id; float bumpDb; };
+    for (const auto& fx : { Fix { "lofx57", 11.2f }, Fix { "lofx421", 16.1f }, Fix { "lofxtwt", 11.4f } })
+    {
+        bool fuzzOn = true;   // _fuzz defaults to on, so a missing node means engaged
+        juce::XmlElement* gainNode = nullptr;
+        for (auto* p : xml.getChildWithTagNameIterator ("PARAM"))
+        {
+            const auto pid = p->getStringAttribute ("id");
+            if (pid == juce::String (fx.id) + "_fuzz") fuzzOn = p->getDoubleAttribute ("value", 1.0) > 0.5;
+            if (pid == juce::String (fx.id) + "_gain") gainNode = p;
+        }
+        if (fuzzOn && gainNode != nullptr)
+            gainNode->setAttribute ("value", juce::jlimit (-60.0, 12.0,
+                gainNode->getDoubleAttribute ("value") + (double) fx.bumpDb));
+    }
+    xml.setAttribute ("stateVersion", 2);
 }
 
 void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
+            migrateState (*xml);
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        }
 }
 
 // ---- presets ---------------------------------------------------------------
@@ -404,9 +470,11 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
 {
     static const std::vector<std::pair<juce::String, std::vector<PV>>> p = {
         { "Init", {} },   // factory defaults
+        // FX gains sit |fuzz trim| above the pre-0.1.4 values (0/-3/-8): same tone,
+        // loudness-matched fuzz path. 421 wants +13.1 but the range caps at +12.
         { "Hysterical", { {"in_gain",8.0f}, {"glue",0.55f},
                           {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
-                          {"lofx57_gain",0.0f},{"lofx421_gain",-3.0f},{"lofxtwt_gain",-8.0f},
+                          {"lofx57_gain",11.2f},{"lofx421_gain",12.0f},{"lofxtwt_gain",3.4f},
                           {"lowcln1_gain",-4.0f},{"lowcln2_gain",-9.0f},
                           {"sub_duck",1.0f},{"lowcln1_duck",1.0f} } },
         { "Subby", { {"glue",0.2f},
@@ -455,7 +523,10 @@ bool BoRBassEnhancerProcessor::saveUserPreset (const juce::String& name)
 {
     auto f = getUserPresetDir().getChildFile (juce::File::createLegalFileName (name) + ".xml");
     if (auto xml = apvts.copyState().createXml())
+    {
+        xml->setAttribute ("stateVersion", 2);
         return xml->writeTo (f);
+    }
     return false;
 }
 
@@ -464,6 +535,7 @@ bool BoRBassEnhancerProcessor::loadUserPresetFile (const juce::File& f)
     if (auto xml = juce::XmlDocument::parse (f))
         if (xml->hasTagName (apvts.state.getType()))
         {
+            migrateState (*xml);
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
             return true;
         }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(BoRBassEnhancer VERSION 0.1.3)
+project(BoRBassEnhancer VERSION 0.1.4)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,6 +27,10 @@ juce_add_plugin(BoRBassEnhancer
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
+    # app/bundle icon (standalone was shipping the generic macOS placeholder);
+    # source artwork is assets/bor-icon.svg
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-256.png"
     # TCC usage descriptions for the standalone — macOS aborts the process if a
     # privacy-gated API is touched without one (e.g. the Bluetooth MIDI button).
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -79,3 +83,23 @@ target_link_libraries(BoRBassEnhancer PRIVATE
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# Offline calibration / benchmark harness (developer tool, never shipped).
+#   cmake -B build -DBOR_BUILD_TOOLS=ON && cmake --build build --target BoRBench
+#   ./build/BoRBench_artefacts/bor-bench cal|bench
+option(BOR_BUILD_TOOLS "Build the bor-bench console tool" OFF)
+if(BOR_BUILD_TOOLS)
+    juce_add_console_app(BoRBench PRODUCT_NAME "bor-bench")
+    target_sources(BoRBench PRIVATE
+        tools/bor_bench.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp)
+    target_compile_definitions(BoRBench PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(BoRBench PRIVATE
+        BoREnhancerIR
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_recommended_config_flags)
+endif()

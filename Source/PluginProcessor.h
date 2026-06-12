@@ -47,9 +47,22 @@ public:
     // Dry DI-blend strip level (the original DI tone, blended in; muted by default).
     float getDiLevel() const noexcept { return diLevel.load (std::memory_order_relaxed); }
 
-    // Spectrum analyzer feed (lock-free SPSC). The editor pulls output samples to FFT.
+    // Spectrum analyzer feeds (lock-free SPSC). The editor pulls samples to FFT.
+    // which = 0: processed output (what you hear), 1: the raw DI input.
     bool analyzerEnabled() const noexcept { return pAnalyzer != nullptr && pAnalyzer->load() > 0.5f; }
-    int  readAnalyzer (float* dest, int maxSamples);   // message thread
+    int  readAnalyzer (int which, float* dest, int maxSamples);   // message thread
+
+    // A/B audition: true = pass the raw DI through (click-free crossfade) so the
+    // processed stack can be compared against the untouched input. Deliberately not
+    // an APVTS parameter — it is a listening tool and must never persist in a session.
+    void setDiReference (bool b) noexcept { abDi.store (b, std::memory_order_relaxed); }
+    bool getDiReference() const noexcept  { return abDi.load (std::memory_order_relaxed); }
+
+    // Live performance stats for the SYS info panel (message thread reads).
+    double getCpuLoad() const noexcept      { return loadMeasurer.getLoadAsProportion(); }
+    int    getXRunCount() const noexcept    { return loadMeasurer.getXRunCount(); }
+    int    getLastBlockSize() const noexcept{ return lastBlock.load (std::memory_order_relaxed); }
+    float  getFuzzOsLatency() const         { return fuzz[0].oversamplingLatency(); }
 
     // Presets (message thread). Per-project state already persists via get/setStateInformation;
     // these add portable named configs: a handful of factory presets + user save/recall to disk.
@@ -96,10 +109,18 @@ private:
     juce::HeapBlock<float>   voiceMono;                    // voicing sum that feeds the rooms
     float scEnv = 0.0f, scAtk = 0.0f, scRel = 0.0f;       // sidechain follower state/coeffs
 
-    // spectrum analyzer fifo (output mono -> editor FFT)
-    juce::AbstractFifo analyzerFifo { 1 << 14 };
-    juce::AudioBuffer<float> analyzerBuf;
-    void writeAnalyzer (const float* mono, int n);
+    // spectrum analyzer fifos (mono -> editor FFT): [0] processed output, [1] raw DI
+    std::array<juce::AbstractFifo, 2> analyzerFifo { juce::AbstractFifo { 1 << 14 },
+                                                     juce::AbstractFifo { 1 << 14 } };
+    std::array<juce::AudioBuffer<float>, 2> analyzerBuf;
+    void writeAnalyzer (int which, const float* mono, int n);
+
+    // DI reference A/B (see setDiReference) — smoothed so toggling never clicks
+    std::atomic<bool> abDi { false };
+    float abXf = 0.0f, abCoef = 0.0f;
+
+    juce::AudioProcessLoadMeasurer loadMeasurer;   // CPU % for the SYS info panel
+    std::atomic<int> lastBlock { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BoRBassEnhancerProcessor)
 };
