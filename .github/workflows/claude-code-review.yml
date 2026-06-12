@@ -1,0 +1,39 @@
+name: Claude Code Review
+# Automatic first-pass review on every PR.
+# Needs the CLAUDE_CODE_OAUTH_TOKEN repo secret (claude setup-token).
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  claude-review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review this pull request for a JUCE 8 / C++20 real-time audio plugin.
+            Priorities, in order:
+            1. Real-time-safety on the audio thread (no locks, allocation, I/O, or
+               blocking in processBlock or anything it calls).
+            2. Correctness bugs: buffer handling at partial/odd block sizes, low
+               sample rates (auval tests 11025/22050 Hz), mono vs stereo layouts,
+               parameter/state save-recall compatibility.
+            3. DSP plausibility: filter cutoffs clamped below Nyquist, denormal
+               handling, click-free parameter changes.
+            Post the review with inline comments where they help. Be concise; only
+            flag things that matter.
+          claude_args: '--allowed-tools "Bash(git log:*),Bash(git diff:*)"'
