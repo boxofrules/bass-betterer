@@ -6,7 +6,8 @@
 # Defaults assume a Release build. The .pkg installs to the system plug-in folders
 # (/Library/Audio/Plug-Ins/{Components,VST3}) — the installer asks for an admin password.
 # The bundles are ad-hoc signed so they load after install; the pkg/dmg are NOT notarized,
-# so the first open needs right-click -> Open (Gatekeeper).
+# so Gatekeeper blocks the first open: System Settings -> Privacy & Security -> Open Anyway
+# (right-click -> Open still works on pre-Sequoia macOS). README "Install" has the user steps.
 set -euo pipefail
 
 ART="${1:-build/BoRBassEnhancer_artefacts/Release}"
