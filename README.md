@@ -3,7 +3,7 @@
 [![DOWNLOAD NOW](https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_DOWNLOAD_NOW-Latest_Release-2ea44f?style=for-the-badge)](https://github.com/boxofrules/bass-betterer/releases/latest)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/boxofrules)
 
-**[⬇️ Download the latest release here](https://github.com/boxofrules/bass-betterer/releases/latest)** — pick the file for your platform (macOS / Windows / Linux), then follow the [install steps](#install-from-a-release) below.
+**[⬇️ Download the latest release here](https://github.com/boxofrules/bass-betterer/releases/latest)** — pick the file for your platform (macOS / Windows / Linux), then follow the [install steps](#install-from-a-release) below. **macOS users:** the first open gets blocked by a security warning — that's expected (not notarized), see [how to get past it](#install-from-a-release).
 
 One bass DI, rebuilt into a whole session.
 
@@ -98,7 +98,20 @@ Grab the [latest Release](https://github.com/boxofrules/bass-betterer/releases/l
 | AU | `/Library/Audio/Plug-Ins/Components/Bass Better-er.component` |
 | VST3 | `/Library/Audio/Plug-Ins/VST3/Bass Better-er.vst3` |
 
-The build is signed but not notarized, so the first run needs right click then Open.
+> [!IMPORTANT]
+> **macOS will block the installer the first time you open it.** The build is signed but not
+> notarized, so Gatekeeper shows *"… was blocked from use because it is not from an identified
+> developer"* (or *"Apple could not verify …"*). This is expected — here's the way past it:
+>
+> 1. Double-click the `.pkg`, let macOS block it, and click **Done** / **OK**.
+> 2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section.
+> 3. Next to the *"… was blocked"* message, click **Open Anyway**, then confirm **Open**
+>    (it asks for your password). The installer now runs normally.
+>
+> ![macOS Privacy & Security pane with the Open Anyway button highlighted](assets/macos-open-anyway.webp)
+>
+> On older macOS (Sonoma/Ventura and earlier) a simple **right-click the `.pkg` → Open → Open**
+> also works. Either way it's a one-time step — the installed plug-ins load normally afterwards.
 
 **Windows:** run `Bass-Better-er-Windows.exe`. Windows is VST3 only (there is no AU), installed to the standard shared VST3 folder:
 
@@ -115,7 +128,7 @@ The build is signed but not notarized, so the first run needs right click then O
 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
-**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. On macOS it is signed but not notarized, so right click then Open the first time (if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
+**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. On macOS the first open hits the same Gatekeeper block as the installer — use the same **System Settings → Privacy & Security → Open Anyway** steps above (or right-click → Open on older macOS; if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
 
 ## Support
 
