@@ -104,6 +104,36 @@ struct KnobLnf : public juce::LookAndFeel_V4
     }
 };
 
+// ---- pan rotary: bipolar arc grows from the 12-o'clock detent ---------------
+// A pan is L<->R, not 0..max. The shared KnobLnf sweeps its arc from the start
+// (bottom-left) to the pointer, which reads like a level fill. Here the arc
+// instead grows either side of the centre detent (silent at dead-centre), so it
+// reads unambiguously as pan; the bone pointer + dot are kept.
+struct PanLnf : public KnobLnf
+{
+    void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                           float pos, float startAngle, float endAngle, juce::Slider&) override
+    {
+        auto b = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
+        const float cx = b.getCentreX(), cy = b.getCentreY();
+        const float r  = juce::jmin (b.getWidth(), b.getHeight()) * 0.5f;
+        g.setColour (bor::rule);
+        g.drawEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f, 2.0f);
+        const float midAngle = (startAngle + endAngle) * 0.5f;
+        const float toAngle  = startAngle + pos * (endAngle - startAngle);
+        juce::Path arc;
+        arc.addCentredArc (cx, cy, r, r, 0.0f,
+                           juce::jmin (midAngle, toAngle), juce::jmax (midAngle, toAngle), true);
+        g.setColour (bor::accent);
+        g.strokePath (arc, juce::PathStrokeType (2.0f));
+        const float px = cx + std::sin (toAngle) * (r - 4.0f);
+        const float py = cy - std::cos (toAngle) * (r - 4.0f);
+        g.setColour (bor::bone);
+        g.drawLine (cx, cy, px, py, 2.0f);
+        g.fillEllipse (cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+    }
+};
+
 // ---- editor LnF: brand-toned diagonal grip so the resize corner is findable ----
 struct EditorLnf : public juce::LookAndFeel_V4
 {
@@ -604,12 +634,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         // DI blend strip first (no pan — A/B audition sits there instead), then the
         // 8 voicing layers. SUB has no pan either: the lows stay dead centre.
-        strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, knobLnf));
+        strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, panLnf));
         for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
         {
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
             strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
-                                        stereo && c != 0, false, faderLnf, knobLnf));
+                                        stereo && c != 0, false, faderLnf, panLnf));
         }
         for (auto* s : strips) addAndMakeVisible (s);
 
@@ -934,6 +964,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     BoRBassEnhancerProcessor& proc;
     bbe::FaderLnf faderLnf;
     bbe::KnobLnf  knobLnf;
+    bbe::PanLnf   panLnf;
     juce::TooltipWindow tooltip { this };
 
     std::unique_ptr<bbe::HexLogo> logo;

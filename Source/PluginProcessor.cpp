@@ -14,8 +14,11 @@ BoRBassEnhancerProcessor::channels = {{
     { "lofx57",  "LOW FX 57",          true,  false,   7.2f, false },
     { "lofx421", "LOW FX 421",         true,  false,   8.1f, false },
     { "lofxtwt", "LOW FX TWEETER",     true,  false,  -2.6f, false },
-    { "roomnear","ROOM NEAR",          false, true,  -60.0f, true  },
-    { "roomfar", "ROOM FAR",           false, true,  -60.0f, true  },
+    // Rooms ship unmuted but at the fader floor (-60 dB = silent in the sum), so
+    // bringing a room in is one fader move, not unmute-then-raise. Default tone is
+    // unchanged. (Producer feedback: "1 click to use them, rather than 2.")
+    { "roomnear","ROOM NEAR",          false, true,  -60.0f, false },
+    { "roomfar", "ROOM FAR",           false, true,  -60.0f, false },
 }};
 
 // channel -> embedded clean/room voicing IR
