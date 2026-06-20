@@ -116,31 +116,6 @@ jobs:
           VER="${{ github.event.inputs.tag || github.ref_name }}"; VER="${VER#v}"
           bash packaging/macos/build-dmg.sh "build/BoRBassEnhancer_artefacts/Release" "Bass-Better-er-macOS.dmg" "$VER"
 
-      # Standalone .app for users who just want the app, not the plug-ins. When signing is
-      # configured it gets Developer ID + hardened runtime + notarization (stapled, so it
-      # opens with no Gatekeeper prompt); otherwise it falls back to ad-hoc so a hand-
-      # installed app still launches on this build.
-      - name: Package macOS (Standalone)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          ART="build/BoRBassEnhancer_artefacts/Release"
-          NAME="Bass Better-er"
-          APP="$ART/Standalone/$NAME.app"
-          ENT="packaging/macos/entitlements.plist"
-          if [ -n "${BOR_CODESIGN_ID:-}" ]; then
-            codesign --force --deep --options runtime --timestamp --entitlements "$ENT" -s "$BOR_CODESIGN_ID" "$APP"
-            if [ -n "${BOR_NOTARY_KEY:-}" ]; then
-              ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/standalone-notarize.zip"
-              xcrun notarytool submit "$RUNNER_TEMP/standalone-notarize.zip" \
-                --key "$BOR_NOTARY_KEY" --key-id "$BOR_NOTARY_KEY_ID" --issuer "$BOR_NOTARY_ISSUER" --wait
-              xcrun stapler staple "$APP"
-            fi
-          else
-            codesign --force --deep -s - "$APP"
-          fi
-          ditto -c -k --keepParent "$APP" "Bass-Better-er-macOS-Standalone.zip"
-
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -154,24 +129,15 @@ jobs:
           & $iscc "/DAppVer=$ver" packaging\windows\installer.iss
           Move-Item -Force packaging\windows\Bass-Better-er-Windows.exe .
 
-      # Standalone .exe for users who just want the app, not the VST3.
-      - name: Package Windows (Standalone)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $art = "build/BoRBassEnhancer_artefacts/Release"
-          Compress-Archive -Force -Path "$art/Standalone/Bass Better-er.exe" -DestinationPath "Bass-Better-er-Windows-Standalone.zip"
-
-      # Linux ships a native VST3 (a bundle dir, as on every platform) plus the Standalone
-      # binary. No AU on Linux, and no installer — users drop the .vst3 into ~/.vst3.
-      - name: Package Linux (VST3 + Standalone)
+      # Linux ships a native VST3 (a bundle dir, as on every platform). No AU on Linux,
+      # and no installer — users drop the .vst3 into ~/.vst3.
+      - name: Package Linux (VST3)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           ART="build/BoRBassEnhancer_artefacts/Release"
           NAME="Bass Better-er"
           ( cd "$ART/VST3" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-VST3.zip" "$NAME.vst3" )
-          ( cd "$ART/Standalone" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-Standalone.zip" "$NAME" )
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -179,11 +145,8 @@ jobs:
           name: dist-${{ matrix.name }}
           path: |
             Bass-Better-er-macOS.dmg
-            Bass-Better-er-macOS-Standalone.zip
             Bass-Better-er-Windows.exe
-            Bass-Better-er-Windows-Standalone.zip
             Bass-Better-er-Linux-VST3.zip
-            Bass-Better-er-Linux-Standalone.zip
           if-no-files-found: ignore
 
       # Always tear down the signing keychain + notary key, even on failure.
@@ -191,7 +154,7 @@ jobs:
         if: always() && runner.os == 'macOS'
         run: |
           security delete-keychain "$RUNNER_TEMP/bor-signing.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/standalone-notarize.zip"
+          rm -f "$RUNNER_TEMP/notary.p8"
 
   release:
     name: Publish release
