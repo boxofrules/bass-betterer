@@ -73,6 +73,42 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j
 
+      # Import the Developer ID certs into a throwaway keychain and stage the App Store
+      # Connect notary key, so the macOS packaging steps below sign + notarize. Skips
+      # cleanly (ad-hoc, unsigned) when the secrets aren't set (e.g. forks).
+      - name: Set up macOS code signing
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          AC_API_KEY_P8: ${{ secrets.AC_API_KEY_P8 }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "::warning::No MACOS_CERT_P12 secret — building ad-hoc (unsigned, not notarized)."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/bor-signing.keychain-db"
+          KCPW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KCPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't auto-lock mid-notarize
+          security unlock-keychain -p "$KCPW" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/certs.p12"
+          security import "$RUNNER_TEMP/certs.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN"          # put it in the search list
+          rm -f "$RUNNER_TEMP/certs.p12"
+          echo "$AC_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          {
+            echo "BOR_CODESIGN_ID=Developer ID Application"
+            echo "BOR_INSTALLER_ID=Developer ID Installer"
+            echo "BOR_NOTARY_KEY=$RUNNER_TEMP/notary.p8"
+            echo "BOR_NOTARY_KEY_ID=$AC_API_KEY_ID"
+            echo "BOR_NOTARY_ISSUER=$AC_API_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+          echo "Code signing + notarization configured."
+
       - name: Package macOS (.pkg in .dmg)
         if: runner.os == 'macOS'
         shell: bash
@@ -80,17 +116,30 @@ jobs:
           VER="${{ github.event.inputs.tag || github.ref_name }}"; VER="${VER#v}"
           bash packaging/macos/build-dmg.sh "build/BoRBassEnhancer_artefacts/Release" "Bass-Better-er-macOS.dmg" "$VER"
 
-      # Standalone .app for users who just want the app, not the plug-ins. Ad-hoc sign it —
-      # the .pkg signs its bundles internally, but a hand-installed app won't launch otherwise.
-      # Still not notarized, so users may need to clear the quarantine xattr on first open.
+      # Standalone .app for users who just want the app, not the plug-ins. When signing is
+      # configured it gets Developer ID + hardened runtime + notarization (stapled, so it
+      # opens with no Gatekeeper prompt); otherwise it falls back to ad-hoc so a hand-
+      # installed app still launches on this build.
       - name: Package macOS (Standalone)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           ART="build/BoRBassEnhancer_artefacts/Release"
           NAME="Bass Better-er"
-          codesign --force --deep -s - "$ART/Standalone/$NAME.app"
-          ditto -c -k --keepParent "$ART/Standalone/$NAME.app" "Bass-Better-er-macOS-Standalone.zip"
+          APP="$ART/Standalone/$NAME.app"
+          ENT="packaging/macos/entitlements.plist"
+          if [ -n "${BOR_CODESIGN_ID:-}" ]; then
+            codesign --force --deep --options runtime --timestamp --entitlements "$ENT" -s "$BOR_CODESIGN_ID" "$APP"
+            if [ -n "${BOR_NOTARY_KEY:-}" ]; then
+              ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/standalone-notarize.zip"
+              xcrun notarytool submit "$RUNNER_TEMP/standalone-notarize.zip" \
+                --key "$BOR_NOTARY_KEY" --key-id "$BOR_NOTARY_KEY_ID" --issuer "$BOR_NOTARY_ISSUER" --wait
+              xcrun stapler staple "$APP"
+            fi
+          else
+            codesign --force --deep -s - "$APP"
+          fi
+          ditto -c -k --keepParent "$APP" "Bass-Better-er-macOS-Standalone.zip"
 
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'
@@ -136,6 +185,13 @@ jobs:
             Bass-Better-er-Linux-VST3.zip
             Bass-Better-er-Linux-Standalone.zip
           if-no-files-found: ignore
+
+      # Always tear down the signing keychain + notary key, even on failure.
+      - name: Clean up signing keychain
+        if: always() && runner.os == 'macOS'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/bor-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/standalone-notarize.zip"
 
   release:
     name: Publish release
