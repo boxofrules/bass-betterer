@@ -55,11 +55,23 @@ if [[ -n "${BOR_NOTARY_KEY:-}" && -n "${BOR_NOTARY_KEY_ID:-}" && -n "${BOR_NOTAR
 fi
 
 notarize_and_staple() {  # $1 = file to submit + staple
-  local f="$1"
-  echo "Notarizing $f ..."
-  xcrun notarytool submit "$f" \
-    --key "$BOR_NOTARY_KEY" --key-id "$BOR_NOTARY_KEY_ID" --issuer "$BOR_NOTARY_ISSUER" \
-    --wait
+  local f="$1" sid status
+  local creds=(--key "$BOR_NOTARY_KEY" --key-id "$BOR_NOTARY_KEY_ID" --issuer "$BOR_NOTARY_ISSUER")
+  echo "Submitting $f to the notary service ..."
+  # Submit and capture the id, so we can poll + pull the log ourselves. We deliberately
+  # don't use a bare `--wait`: Apple's notary service intermittently sticks a submission
+  # at "In Progress" for a very long time, and an un-timed wait would hang the whole job.
+  sid="$(xcrun notarytool submit "$f" "${creds[@]}" --output-format json | plutil -extract id raw -o - -)"
+  echo "  submission id: $sid"
+  # Wait with a hard ceiling. On timeout this exits non-zero; we then inspect the status.
+  xcrun notarytool wait "$sid" "${creds[@]}" --timeout "${BOR_NOTARY_TIMEOUT:-20m}" || true
+  status="$(xcrun notarytool info "$sid" "${creds[@]}" --output-format json | plutil -extract status raw -o - - 2>/dev/null || echo unknown)"
+  echo "  status: $status"
+  if [ "$status" != "Accepted" ]; then
+    echo "ERROR: notarization not Accepted for $f (status=$status, id=$sid). Notary log:" >&2
+    xcrun notarytool log "$sid" "${creds[@]}" || true
+    exit 1
+  fi
   xcrun stapler staple "$f"
 }
 
