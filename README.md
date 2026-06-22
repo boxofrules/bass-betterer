@@ -3,7 +3,7 @@
 [![DOWNLOAD NOW](https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_DOWNLOAD_NOW-Latest_Release-2ea44f?style=for-the-badge)](https://github.com/boxofrules/bass-betterer/releases/latest)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/boxofrules)
 
-**[⬇️ Download the latest release here](https://github.com/boxofrules/bass-betterer/releases/latest)** — pick the file for your platform (macOS / Windows / Linux), then follow the [install steps](#install-from-a-release) below. **macOS users:** the first open gets blocked by a security warning — that's expected (not notarized), see [how to get past it](#install-from-a-release).
+**[⬇️ Download the latest release here](https://github.com/boxofrules/bass-betterer/releases/latest)** — pick the file for your platform (macOS / Windows / Linux), then follow the [install steps](#install-from-a-release) below. The macOS build is signed + notarized, so it just opens; Windows is unsigned, so SmartScreen may warn (**More info → Run anyway**).
 
 One bass DI, rebuilt into a whole session.
 

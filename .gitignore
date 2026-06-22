@@ -8,6 +8,9 @@ ir/*.wav
 CLAUDE.md
 *.private.md
 
+# Local reference material dropped in the repo root (forum/Reddit saves, etc.)
+/*.pdf
+
 # Build output
 build/
 build-*/
