@@ -7,7 +7,7 @@
 
 One bass DI, rebuilt into a whole session.
 
-A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
+A JUCE 8 audio effect plugin (AU and VST3, macOS and Windows). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
 
 ![Bass Better-er](assets/bass-betterer.png)
 
@@ -98,20 +98,7 @@ Grab the [latest Release](https://github.com/boxofrules/bass-betterer/releases/l
 | AU | `/Library/Audio/Plug-Ins/Components/Bass Better-er.component` |
 | VST3 | `/Library/Audio/Plug-Ins/VST3/Bass Better-er.vst3` |
 
-> [!IMPORTANT]
-> **macOS will block the installer the first time you open it.** The build is signed but not
-> notarized, so Gatekeeper shows *"… was blocked from use because it is not from an identified
-> developer"* (or *"Apple could not verify …"*). This is expected — here's the way past it:
->
-> 1. Double-click the `.pkg`, let macOS block it, and click **Done** / **OK**.
-> 2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section.
-> 3. Next to the *"… was blocked"* message, click **Open Anyway**, then confirm **Open**
->    (it asks for your password). The installer now runs normally.
->
-> ![macOS Privacy & Security pane with the Open Anyway button highlighted](assets/macos-open-anyway.webp)
->
-> On older macOS (Sonoma/Ventura and earlier) a simple **right-click the `.pkg` → Open → Open**
-> also works. Either way it's a one-time step — the installed plug-ins load normally afterwards.
+The macOS build is Developer ID signed and notarized by Apple, so the installer opens and runs without any Gatekeeper prompt.
 
 **Windows:** run `Bass-Better-er-Windows.exe`. Windows is VST3 only (there is no AU), installed to the standard shared VST3 folder:
 
@@ -127,8 +114,6 @@ Grab the [latest Release](https://github.com/boxofrules/bass-betterer/releases/l
 | All users | `/usr/lib/vst3/` |
 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
-
-**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. On macOS the first open hits the same Gatekeeper block as the installer — use the same **System Settings → Privacy & Security → Open Anyway** steps above (or right-click → Open on older macOS; if it still refuses, clear the quarantine flag: `xattr -dr com.apple.quarantine "Bass Better-er.app"`).
 
 ## Support
 
