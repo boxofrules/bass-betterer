@@ -7,7 +7,7 @@
 
 One bass DI, rebuilt into a whole session.
 
-A JUCE 8 audio effect plugin (AU and VST3, macOS and Windows). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
+A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
 
 ![Bass Better-er](assets/bass-betterer.png)
 
@@ -114,6 +114,8 @@ The macOS build is Developer ID signed and notarized by Apple, so the installer 
 | All users | `/usr/lib/vst3/` |
 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
+
+**Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. The macOS app is signed + notarized, so it opens with no Gatekeeper prompt; the Windows app is unsigned, so SmartScreen may warn — **More info → Run anyway**.
 
 ## Support
 
