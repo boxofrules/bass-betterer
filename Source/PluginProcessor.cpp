@@ -198,6 +198,11 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     abCoef = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.010));
     loadMeasurer.reset (sampleRate, samplesPerBlock);
     smSnap = true;   // gain ramps snap to targets on the first block
+
+    // all convs above were just re-prepared, so no stale state to flush
+    for (int fx = 0; fx < 3; ++fx)
+        prevFuzzOn[(size_t) fx] = pFuzz[(size_t) (fx + 3)]->load() > 0.5f;
+    roomIdle.fill (false);
 }
 
 // ---- spectrum analyzer SPSC fifos -------------------------------------------
@@ -273,6 +278,9 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (int c = 0; c < NUM_CH; ++c) if (pSolo[(size_t) c]->load() > 0.5f) anySolo = true;
     if (pDiSolo->load() > 0.5f) anySolo = true;
 
+    // -60 dB is the bottom of the fader range: treat it as true silence (the
+    // default decibelsToGain floor is -100, which leaves 0.001 of signal), so
+    // floored strips hit the zero-gain early-outs below
     std::array<bool, NUM_CH>  active {};
     std::array<float, NUM_CH> gain {};
     for (int c = 0; c < NUM_CH; ++c)
@@ -280,10 +288,18 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const bool muted = pMute[(size_t) c]->load() > 0.5f;
         const bool solo  = pSolo[(size_t) c]->load() > 0.5f;
         active[(size_t) c] = ! muted && (! anySolo || solo);
-        gain[(size_t) c]   = active[(size_t) c] ? juce::Decibels::decibelsToGain (pGain[(size_t) c]->load()) : 0.0f;
+        gain[(size_t) c]   = active[(size_t) c] ? juce::Decibels::decibelsToGain (pGain[(size_t) c]->load(), -60.0f) : 0.0f;
     }
     const bool  diActive = (pDiMute->load() <= 0.5f) && (! anySolo || pDiSolo->load() > 0.5f);
-    const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load()) : 0.0f;
+    const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load(), -60.0f) : 0.0f;
+
+    // duck flags, read once so the key computation and the mix agree this block
+    std::array<bool, NUM_CH> duck {};
+    bool anyDuck = false;
+    for (int c = 0; c < NUM_CH; ++c)
+    { duck[(size_t) c] = pDuck[(size_t) c]->load() > 0.5f; anyDuck = anyDuck || duck[(size_t) c]; }
+    const bool diDuck = pDiDuck->load() > 0.5f;
+    anyDuck = anyDuck || diDuck;
 
     // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf; build room feed ----
     juce::FloatVectorOperations::clear (voiceMono, n);
@@ -295,6 +311,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         juce::FloatVectorOperations::copy (w, src, n);
 
         const bool fuzzOn = def.isFX && pFuzz[(size_t) c] != nullptr && pFuzz[(size_t) c]->load() > 0.5f;
+        if (def.isFX && fuzzOn != prevFuzzOn[(size_t) (c - 3)])
+        {
+            // the conv we're switching to hasn't been fed since the last toggle —
+            // flush its FIFOs or it replays a stale tail
+            if (fuzzOn) fuzzConvs[(size_t) (c - 3)].reset();
+            else        convs[(size_t) c].reset();
+            prevFuzzOn[(size_t) (c - 3)] = fuzzOn;
+        }
         // only this block's n samples — wrapping all of `work` (sized to the host max)
         // feeds stale samples back through the convolution when the host renders
         // shorter blocks (GarageBand/Logic live input)
@@ -322,24 +346,42 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const float* lc = layerBuf.getReadPointer (c);
         for (int s = 0; s < n; ++s) voiceMono[(size_t) s] += lc[s];   // rooms hear the voicing sum
     }
-    for (int c = 6; c < NUM_CH; ++c) renderLayer (c, voiceMono.getData());
-
-    // ---- sidechain key = LO FX (3,4,5) post-gain sum -> follower -> per-sample duck gain ----
-    constexpr float SC_THRESH = -32.0f, SC_AMOUNT = 0.7f, SC_MAXRED = 12.0f;
-    for (int s = 0; s < n; ++s)
+    for (int c = 6; c < NUM_CH; ++c)
     {
-        float k = 0.0f;
-        for (int c = 3; c <= 5; ++c) k += layerBuf.getReadPointer (c)[s] * gain[(size_t) c];
-        k = std::abs (k);
-        scEnv += (k > scEnv ? scAtk : scRel) * (k - scEnv);
-        const float kdb  = juce::Decibels::gainToDecibels (scEnv, -100.0f);
-        const float over = juce::jmax (0.0f, kdb - SC_THRESH);
-        const float red  = juce::jmin (SC_MAXRED, over * SC_AMOUNT);
-        keyEnv[(size_t) s] = juce::Decibels::decibelsToGain (-red);   // 0..1 duck multiplier
+        // a fully silent room (the default state) skips its convolution — the two
+        // room IRs carry 24000-tap tails, the heaviest DSP in the plugin. mixStrip
+        // early-outs on the same all-zero condition, so the stale layerBuf row is
+        // never read; the conv is flushed when the room comes back in.
+        auto& idle = roomIdle[(size_t) (c - 6)];
+        if (gain[(size_t) c] == 0.0f && smLg[(size_t) c] == 0.0f && smRg[(size_t) c] == 0.0f)
+        {
+            idle = true;
+            continue;
+        }
+        if (idle) { convs[(size_t) c].reset(); idle = false; }
+        renderLayer (c, voiceMono.getData());
     }
 
+    // ---- sidechain key = LO FX (3,4,5) post-gain sum -> follower -> per-sample duck gain ----
+    // only computed while some strip has SC engaged; the follower resumes from a
+    // stale envelope when re-engaged, which the 5 ms attack swallows within a block
+    constexpr float SC_THRESH = -32.0f, SC_AMOUNT = 0.7f, SC_MAXRED = 12.0f;
+    if (anyDuck)
+        for (int s = 0; s < n; ++s)
+        {
+            float k = 0.0f;
+            for (int c = 3; c <= 5; ++c) k += layerBuf.getReadPointer (c)[s] * gain[(size_t) c];
+            k = std::abs (k);
+            scEnv += (k > scEnv ? scAtk : scRel) * (k - scEnv);
+            const float kdb  = juce::Decibels::gainToDecibels (scEnv, -100.0f);
+            const float over = juce::jmax (0.0f, kdb - SC_THRESH);
+            const float red  = juce::jmin (SC_MAXRED, over * SC_AMOUNT);
+            keyEnv[(size_t) s] = juce::Decibels::decibelsToGain (-red);   // 0..1 duck multiplier
+        }
+
     // ---- PASS 2: mix to stereo with per-strip pan + optional sidechain duck; publish meters --
-    outBus.clear();
+    outBus.clear (0, 0, n);   // only this block's samples (the buffer is sized to the host max)
+    outBus.clear (1, 0, n);
     auto* outL = outBus.getWritePointer (0);
     auto* outR = outBus.getWritePointer (1);
 
@@ -375,14 +417,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
         mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c],
-                  pDuck[(size_t) c]->load() > 0.5f, pan, 1.0f,
+                  duck[(size_t) c], pan, 1.0f,
                   smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]);
     }
 
     {
         // DI blend stays centred (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, pDiDuck->load() > 0.5f, 0.0f, phase, smDiLg, smDiRg, diLevel);
+        mixStrip (dry, diGain, diDuck, 0.0f, phase, smDiLg, smDiRg, diLevel);
     }
 
     // --- glue: compress the sum (threshold/ratio scale with the knob) ---

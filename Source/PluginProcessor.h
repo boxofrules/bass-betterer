@@ -29,7 +29,9 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.4; }
+    // must cover the room IRs' 24000-tap reverb tail (0.54 s at 44.1 kHz) or
+    // hosts that trust this value truncate the room decay on bounce/freeze
+    double getTailLengthSeconds() const override { return 0.6; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}
@@ -127,6 +129,12 @@ private:
     std::array<float, NUM_CH> smLg {}, smRg {};
     float smDiLg = 0.0f, smDiRg = 0.0f, smInG = 1.0f, smOutG = 1.0f, smMakeup = 1.0f;
     bool  smSnap = true;
+
+    // FX clean/fuzz convs share one strip: the idle one holds stale FIFO state,
+    // so it is reset when the FUZZ toggle switches back to it
+    std::array<bool, 3> prevFuzzOn {};
+    // rooms skip their (heaviest) convolution while fully silent; reset on re-entry
+    std::array<bool, 2> roomIdle {};
 
     juce::AudioProcessLoadMeasurer loadMeasurer;   // CPU % for the SYS info panel
     std::atomic<int> lastBlock { 0 };
