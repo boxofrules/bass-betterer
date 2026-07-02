@@ -184,6 +184,8 @@ struct Knob : public juce::Component
         slider.setLookAndFeel (&lnf);
         addAndMakeVisible (slider);
         att = std::make_unique<SA> (p.apvts, pid, slider);
+        if (auto* prm = p.apvts.getParameter (pid))
+            slider.setDoubleClickReturnValue (true, prm->convertFrom0to1 (prm->getDefaultValue()));
         caption.setText (cap, juce::dontSendNotification);
         caption.setJustificationType (juce::Justification::centred);
         caption.setFont (bor::mono (11.0f));
@@ -224,6 +226,8 @@ struct Strip : public juce::Component
         gain.setColour (juce::Slider::backgroundColourId, bor::rule);
         addAndMakeVisible (gain);
         gainAtt = std::make_unique<SA> (p.apvts, prefix + "_gain", gain);
+        if (auto* prm = p.apvts.getParameter (prefix + "_gain"))
+            gain.setDoubleClickReturnValue (true, prm->convertFrom0to1 (prm->getDefaultValue()));
         gain.onValueChange = [this] { repaint(); };
 
         mute  = makeTog ("M",  bor::bone,   bor::ink,     "Mute");
@@ -247,6 +251,7 @@ struct Strip : public juce::Component
             pan.setRotaryParameters (juce::degreesToRadians (225.0f), juce::degreesToRadians (495.0f), true);
             pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             pan.setLookAndFeel (&klnf);
+            pan.setDoubleClickReturnValue (true, 0.0);   // back to the centre detent
             pan.setTooltip ("Pan");
             addAndMakeVisible (pan);
             panAtt = std::make_unique<SA> (p.apvts, prefix + "_pan", pan);
@@ -275,7 +280,9 @@ struct Strip : public juce::Component
         gain.repaint(); repaint();
     }
 
-    void setLevel (float l) { if (std::abs (l - level) > 0.004f) { level = l; repaint(); } }
+    // meters tick at 30 Hz on every strip — repaint only the 8 px meter column,
+    // not the whole strip (name/buttons/readout) through the editor's scale transform
+    void setLevel (float l) { if (std::abs (l - level) > 0.004f) { level = l; repaint (meterRect); } }
 
     void paint (juce::Graphics& g) override
     {
