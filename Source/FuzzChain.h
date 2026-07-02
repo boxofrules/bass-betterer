@@ -81,9 +81,10 @@ struct FuzzChain
         float* ch[1] = { x };
         juce::dsp::AudioBlock<float> blk (ch, 1, (size_t) n);
         auto up = os->processSamplesUp (blk);
+        float* u = up.getChannelPointer (0);   // raw pointer: this loop runs at 4x rate
         const int upN = (int) up.getNumSamples();
         for (int s = 0; s < upN; ++s)
-            up.setSample (0, s, clip (up.getSample (0, s), drive, asym, hard));
+            u[s] = clip (u[s], drive, asym, hard);
         os->processSamplesDown (blk);
 
         for (int i = 0; i < n; ++i)

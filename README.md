@@ -39,6 +39,8 @@ Every layer is a channel strip with the same controls.
 
 **Sidechain ducking:** the LOW FX dirt acts as a sidechain key. Arm SC on any layer, even the SUB, and it ducks out of the way when the dirt comes in, so the grit cuts through without the low end fighting it.
 
+**Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
+
 | Master | What it does |
 | --- | --- |
 | INPUT | Input gain. Also drives the fuzz, like a pedal. |

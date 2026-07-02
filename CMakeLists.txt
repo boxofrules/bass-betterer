@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.22)
-project(BoRBassEnhancer VERSION 0.1.6)
+
+# Minimum macOS the binaries run on. Must be set before project(); without it the
+# build inherits the build machine's SDK default, so CI releases would require
+# whatever macOS the runner happens to be on. 10.13 is JUCE 8's floor (the arm64
+# slice of a universal binary implies 11.0 by itself; this governs the x86_64 one).
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
+
+project(BoRBassEnhancer VERSION 0.1.7)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
