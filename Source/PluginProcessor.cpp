@@ -78,6 +78,14 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pDiSolo   = P ("di_solo");
     pDiPhase  = P ("di_phase");
     pDiDuck   = P ("di_duck");
+
+    // Spectrum display view mode ("freqView": all/pre/post) is a non-automatable
+    // ValueTree property, not an APVTS parameter (see PluginEditor::freqView()),
+    // so it has no parameter "default value" to declare — make the fresh-instance
+    // default (ALL) explicit here instead of relying only on getProperty's fallback.
+    // setStateInformation() replaces apvts.state wholesale for a restored session,
+    // so this has no effect once a saved session/preset is loaded.
+    apvts.state.setProperty ("freqView", "all", nullptr);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::createLayout()
@@ -101,8 +109,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_phase", 1 }, nm + " Phase", false));
         // SC = duck this layer from the LO FX (dirt) sidechain key
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_duck", 1 }, nm + " Sidechain", false));
+        // v0.2.0: FUZZ now defaults OFF on a fresh instance/Init preset (clean stack
+        // first, dirt is an opt-in choice) — saved sessions/other factory presets that
+        // explicitly set _fuzz are unaffected; migrateState()'s "missing node means
+        // engaged" fallback stays true since it only interprets pre-stateVersion-2 XML.
         if (ch.isFX)
-            layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_fuzz", 1 }, nm + " Fuzz", true));
+            layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_fuzz", 1 }, nm + " Fuzz", false));
     }
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "in_gain", 1 }, "Input Gain",
