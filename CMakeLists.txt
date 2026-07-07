@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22)
 # slice of a universal binary implies 11.0 by itself; this governs the x86_64 one).
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
 
-project(BoRBassEnhancer VERSION 0.1.7)
+project(BoRBassEnhancer VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,13 +24,27 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(JUCE)
 
+# Optional AAX (Pro Tools) target — experimental, off by default. Needs the (free)
+# Avid AAX SDK checked out somewhere locally; JUCE builds the wrapper itself, we just
+# point it at the SDK. Not available in CI (the SDK isn't fetched there), so the
+# variable stays empty on every CI runner and the build is identical to before this
+# option existed. See README "Building the AAX target".
+set(BOR_AAX_SDK_PATH "" CACHE PATH "Path to a local Avid AAX SDK checkout (leave empty to skip AAX)")
+
+set(BOR_PLUGIN_FORMATS AU VST3 Standalone)
+if(BOR_AAX_SDK_PATH AND EXISTS "${BOR_AAX_SDK_PATH}")
+    juce_set_aax_sdk_path("${BOR_AAX_SDK_PATH}")
+    list(APPEND BOR_PLUGIN_FORMATS AAX)
+    message(STATUS "BOR_AAX_SDK_PATH set (${BOR_AAX_SDK_PATH}) — building AAX format too")
+endif()
+
 juce_add_plugin(BoRBassEnhancer
     COMPANY_NAME "Box of Rules"
     COMPANY_COPYRIGHT "(c) 2026 Box of Rules. Source-available, proprietary — see the repo LICENSE."
     BUNDLE_ID com.boxofrules.bassbetterer
     PLUGIN_MANUFACTURER_CODE BxRl
     PLUGIN_CODE BbEn
-    FORMATS AU VST3 Standalone
+    FORMATS ${BOR_PLUGIN_FORMATS}
     PRODUCT_NAME "Bass Better-er"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE

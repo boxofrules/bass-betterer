@@ -2,6 +2,7 @@
 ir/*.wav
 *.component/
 *.vst3/
+*.aaxplugin/
 *.zip
 
 # --- Private maintainer notes (the capture recipe) — kept local, never committed ---
@@ -37,3 +38,6 @@ DerivedData/
 *.cer
 *.key
 .env
+
+# User's local validation snapshot — never committed
+/validate-0.2.0/

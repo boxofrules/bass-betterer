@@ -13,6 +13,12 @@ A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
 
+## What's new in 0.2.0
+
+- **Multi-output buses** — each channel strip can expose its own stereo aux output alongside the main mix, opt-in per host. See [Multi-output](#multi-output).
+- **New init defaults** — a fresh instance (and the Init preset) now starts with FUZZ off on all 3 LOW FX strips (clean stack first, dirt is opt-in) and the FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **Experimental AAX build support** — a local, unsigned AAX build target for Pro Tools Developer builds. Not part of the Release downloads yet. See [Building the AAX target](#building-the-aax-target).
+
 ## Channels and controls
 
 A real bass record is never one signal. It is a foundation you feel, a body you hear, dirt that bites, and the room around all of it, balanced live. **Bass Better-er** bottles that as parallel frequency role layers. They overlap rather than brick wall, the lows stay mono and centred, and the stereo image widens as it climbs. It holds together on a phone and opens up on a big system.
@@ -118,6 +124,22 @@ The macOS build is Developer ID signed and notarized by Apple, so the installer 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
 **Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. The macOS app is signed + notarized, so it opens with no Gatekeeper prompt; the Windows app is unsigned, so SmartScreen may warn — **More info → Run anyway**.
+
+## Building the AAX target
+
+**Experimental, developer-only.** Pro Tools support is not part of the Release downloads — there's a working local build, but nothing you can load in retail Pro Tools yet.
+
+Bass Better-er can optionally build an AAX format alongside AU/VST3/Standalone if you point the build at a local checkout of the (free) Avid AAX SDK:
+
+```sh
+cmake -B build-aax -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON \
+    -DBOR_AAX_SDK_PATH=/path/to/aax-sdk
+cmake --build build-aax --target BoRBassEnhancer_AAX -j
+```
+
+Leave `BOR_AAX_SDK_PATH` unset (the default) and the build is identical to before — AU/VST3/Standalone only, exactly like CI. Setting it to a valid SDK path adds `AAX` to the build's formats; JUCE builds the AAX wrapper itself from that SDK, no extra plugin code needed. The resulting `Bass Better-er.aaxplugin` builds with all 8 aux output buses intact — no bus-layout restriction was needed for AAX.
+
+**Signing is the actual blocker, not the build.** The `.aaxplugin` this produces is unsigned. Avid requires AAX plugins to be signed with a **PACE/iLok (Eden) certificate** — a paid, ongoing developer program — before Pro Tools will fully trust it; **retail Pro Tools will refuse to load an unsigned AAX plugin at all** (only a Pro Tools Developer build can load it unsigned, and even that has limits). PACE signing is pending — it's a recurring paid commitment, so it's deferred until there's a clear path to cover it. Until then this target exists for local build verification only, not for distribution.
 
 ## Support
 
