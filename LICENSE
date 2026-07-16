@@ -1,13 +1,35 @@
-Copyright (c) 2026 Box of Rules. All rights reserved.
+Bass Better-er — Source-Available Proprietary Licence
+Copyright (c) 2026 Box of Rules. All rights reserved except as expressly stated below.
 
-This software, its source code, and all bundled assets — including the cab impulse
-responses (whether in plaintext or encrypted form) and the compiled plugin binaries
-— are the proprietary and confidential property of Box of Rules.
+1. USING THE PLUGIN (BINARIES). Box of Rules grants you a free, non-exclusive,
+   non-transferable licence to download, install, and use the compiled plugin
+   binaries published on this repository's Releases page, for any lawful purpose,
+   including commercial music production. You may not sell the binaries or
+   redistribute them as part of a paid product.
 
-No license is granted. You may not copy, modify, distribute, sublicense, sell, or
-create derivative works from any part of this repository, nor reverse-engineer or
-attempt to extract the embedded impulse responses, without prior written permission
-from Box of Rules.
+2. GITHUB. This repository is public on GitHub. Nothing in this licence restricts
+   the rights that GitHub's Terms of Service grant you in publicly posted content —
+   including viewing this repository and forking it through GitHub's built-in
+   functionality. Any fork must retain this LICENSE file unmodified.
+
+3. SOURCE CODE. The source code is published for transparency ("source-available");
+   it is not open source. Except as provided in sections 1 and 2, no rights are
+   granted: you may not redistribute the source outside GitHub, publish modified
+   versions, sublicense or sell it, or distribute products derived from it, without
+   prior written permission from Box of Rules.
+
+4. IMPULSE RESPONSES. The measured cab impulse responses — committed to this
+   repository only in encrypted form (ir/ir-pack.tar.gz.enc) and embedded in the
+   compiled binaries — are the proprietary and confidential property of Box of
+   Rules. No rights are granted to decrypt, extract, reverse-engineer,
+   redistribute, or reuse them in any form.
+
+5. JUCE. Bass Better-er is built with the JUCE framework (© Raw Material Software
+   Limited), which is not part of this repository; the build system fetches it from
+   the official JUCE repository at configure time. Box of Rules uses and
+   distributes JUCE under the JUCE 8 End User Licence Agreement (commercial
+   licence, Starter tier) — not under the AGPLv3. JUCE's licence terms:
+   https://juce.com/legal/juce-8-licence/
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A

@@ -11,4 +11,8 @@ install and use Bass Better-er entirely at your own risk.
 
 By installing or using this software you accept these terms.
 
-Bass Better-er is proprietary. © Box of Rules. All rights reserved.
+Bass Better-er is free to download and use, including on commercial productions.
+It is proprietary, source-available software: © Box of Rules, all other rights
+reserved — see the LICENSE file in the source repository
+(github.com/boxofrules/bass-betterer). Built with the JUCE framework, used
+under the JUCE 8 End User Licence Agreement.

@@ -133,4 +133,9 @@ It is free to use. If it earns a place on your tracks, throw a coffee in the tip
 
 ## License
 
-Proprietary. © Box of Rules. All rights reserved. See [LICENSE](LICENSE).
+Source-available, not open source. © 2026 Box of Rules. See [LICENSE](LICENSE) for the full terms.
+
+- The **released binaries** are free to download and use, including on commercial productions.
+- This **repository is public on GitHub**, so — per the [GitHub Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) — you may view it and fork it on GitHub. No other redistribution or derivative-product rights are granted.
+- The **cab impulse responses** are proprietary and are committed only in encrypted form.
+- Built with [JUCE 8](https://juce.com), used under the [JUCE 8 EULA](https://juce.com/legal/juce-8-licence/) (commercial licence, Starter tier), not the AGPLv3. JUCE is not included in this repository; it is fetched at build time.
