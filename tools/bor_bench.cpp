@@ -1,4 +1,5 @@
 // bor-bench — offline calibration + benchmark harness for Bass Better-er.
+// © 2026 Box of Rules. Source-available, proprietary — see LICENSE.
 // Developer tool, never shipped: build with -DBOR_BUILD_TOOLS=ON.
 //
 //   bor-bench cal     measure fuzz-vs-clean loudness per LO FX strip (K-weighted,
