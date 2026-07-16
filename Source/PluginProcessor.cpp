@@ -1,3 +1,4 @@
+// Bass Better-er — © 2026 Box of Rules. Source-available, proprietary — see LICENSE.
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BinaryData.h"

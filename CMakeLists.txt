@@ -26,6 +26,7 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(BoRBassEnhancer
     COMPANY_NAME "Box of Rules"
+    COMPANY_COPYRIGHT "(c) 2026 Box of Rules. Source-available, proprietary — see the repo LICENSE."
     BUNDLE_ID com.boxofrules.bassbetterer
     PLUGIN_MANUFACTURER_CODE BxRl
     PLUGIN_CODE BbEn

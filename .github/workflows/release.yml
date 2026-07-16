@@ -140,6 +140,7 @@ jobs:
             codesign --force --deep -s - "$APP"
           fi
           ditto -c -k --keepParent "$APP" "Bass-Better-er-macOS-Standalone.zip"
+          zip -j "Bass-Better-er-macOS-Standalone.zip" packaging/DISCLAIMER.txt
 
       - name: Package Windows (.exe)
         if: runner.os == 'Windows'
@@ -160,7 +161,7 @@ jobs:
         shell: pwsh
         run: |
           $art = "build/BoRBassEnhancer_artefacts/Release"
-          Compress-Archive -Force -Path "$art/Standalone/Bass Better-er.exe" -DestinationPath "Bass-Better-er-Windows-Standalone.zip"
+          Compress-Archive -Force -Path "$art/Standalone/Bass Better-er.exe", "packaging/DISCLAIMER.txt" -DestinationPath "Bass-Better-er-Windows-Standalone.zip"
 
       # Linux ships a native VST3 (a bundle dir, as on every platform) plus the Standalone
       # binary. No AU on Linux, and no installer — users drop the .vst3 into ~/.vst3.
@@ -172,6 +173,8 @@ jobs:
           NAME="Bass Better-er"
           ( cd "$ART/VST3" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-VST3.zip" "$NAME.vst3" )
           ( cd "$ART/Standalone" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-Standalone.zip" "$NAME" )
+          zip -j "Bass-Better-er-Linux-VST3.zip" packaging/DISCLAIMER.txt
+          zip -j "Bass-Better-er-Linux-Standalone.zip" packaging/DISCLAIMER.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
