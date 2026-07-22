@@ -15,7 +15,6 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 ## What's new in 0.2.0
 
-- **Multi-output buses** — each channel strip can expose its own stereo aux output alongside the main mix, opt-in per host. See [Multi-output](#multi-output).
 - **New init defaults** — a fresh instance (and the Init preset) now starts with FUZZ off on all 3 LOW FX strips (clean stack first, dirt is opt-in) and the FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
 - **Experimental AAX build support** — a local, unsigned AAX build target for Pro Tools Developer builds. Not part of the Release downloads yet. See [Building the AAX target](#building-the-aax-target).
 
