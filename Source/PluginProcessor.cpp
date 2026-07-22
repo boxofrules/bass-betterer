@@ -171,13 +171,18 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
         fuzzConvs[(size_t) fx].prepare (monoSpec);
     }
 
-    // LO FX fuzz chains — per-channel locked settings (drive,asym,hard,fizz,
-    // body,warmth,low, level trim, 8 grit bands). The level trim equalises the
-    // fuzz loudness to the clean voicing at the same fader, so toggling FUZZ
-    // doesn't jump (K-weighted match measured with `tools/bor-bench cal`).
-    fuzz[0].configure (150.f, 0.2f, 0.7f, 0.8f, 2.8f, 0.65f, -0.2f, -11.2f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.45f,0.8f,0.25f} });
-    fuzz[1].configure ( 84.f, 0.2f, 0.7f, 0.8f, 4.0f, 1.0f,  -0.2f, -16.1f, { {0.65f,0.25f,0.85f,0.15f,0.0f,0.0f,0.2f,0.4f} });
-    fuzz[2].configure ( 97.f, 0.2f, 0.7f, 1.0f, 2.8f, 0.65f, -1.2f, -11.4f, { {0.9f,0.25f,0.85f,0.8f,0.4f,0.35f,0.0f,0.0f} });
+    // LO FX drive chains (v0.2.0: the drive:: tables replace the old inline
+    // configure constants — same numbers, same sound). The per-strip locks
+    // carry the mic-chain shaping + the level trim that equalises drive
+    // loudness to the clean voicing at the same fader (K-weighted match
+    // measured with `tools/bor-bench cal`); the character is FUZZ (the locked
+    // v1 constants, byte-identical to every earlier release — bor-bench fnv)
+    // or DIST from the encrypted pack, selected per block in renderLayer.
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        fuzz[(size_t) slot].setLocks (drive::LOCKS[(size_t) slot]);
+        fuzz[(size_t) slot].setCharacter (drive::FUZZ[(size_t) slot]);
+    }
     for (auto& fz : fuzz) fz.prepare (sampleRate, samplesPerBlock);
     fuzzOsLat.store (fuzz[0].oversamplingLatency(), std::memory_order_relaxed);
 
