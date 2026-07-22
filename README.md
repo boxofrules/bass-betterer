@@ -21,7 +21,7 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 - **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
 - **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, HI layers muted, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
 - **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
-- **Experimental AAX build support** — a local, unsigned AAX build target for Pro Tools Developer builds. Not part of the Release downloads yet. See [Building the AAX target](#building-the-aax-target).
+- **AAX (Pro Tools) builds, now signed** — the AAX target builds and is signed with the PACE tools, and loads in retail Pro Tools. Not in the Release downloads yet: the shipped build needs to cover Apple silicon and Intel both, which lands with a future release. See [Building the AAX target](#building-the-aax-target).
 
 ## Channels and controls
 
@@ -129,7 +129,7 @@ Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
 ## Building the AAX target
 
-**Experimental, developer-only.** Pro Tools support is not part of the Release downloads — there's a working local build, but nothing you can load in retail Pro Tools yet.
+**Not in the Release downloads yet.** The AAX target builds, and release builds are signed with the PACE code-signing tools, which retail Pro Tools requires and accepts. What is missing is release plumbing: a universal (Apple silicon + Intel) build wired into CI. Until that lands, the downloads carry AU/VST3/Standalone only.
 
 Bass Better-er can optionally build an AAX format alongside AU/VST3/Standalone if you point the build at a local checkout of the (free) Avid AAX SDK:
 
@@ -139,9 +139,9 @@ cmake -B build-aax -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON \
 cmake --build build-aax --target BoRBassEnhancer_AAX -j
 ```
 
-Leave `BOR_AAX_SDK_PATH` unset (the default) and the build is identical to before — AU/VST3/Standalone only, exactly like CI. Setting it to a valid SDK path adds `AAX` to the build's formats; JUCE builds the AAX wrapper itself from that SDK, no extra plugin code needed. The resulting `Bass Better-er.aaxplugin` builds with all 8 aux output buses intact — no bus-layout restriction was needed for AAX.
+Leave `BOR_AAX_SDK_PATH` unset (the default) and the build is identical to before — AU/VST3/Standalone only, exactly like CI. Setting it to a valid SDK path adds `AAX` to the build's formats; JUCE builds the AAX wrapper itself from that SDK, no extra plugin code needed.
 
-**Signing is the actual blocker, not the build.** The `.aaxplugin` this produces is unsigned. Avid requires AAX plugins to be signed with a **PACE/iLok (Eden) certificate** — a paid, ongoing developer program — before Pro Tools will fully trust it; **retail Pro Tools will refuse to load an unsigned AAX plugin at all** (only a Pro Tools Developer build can load it unsigned, and even that has limits). PACE signing is pending — it's a recurring paid commitment, so it's deferred until there's a clear path to cover it. Until then this target exists for local build verification only, not for distribution.
+**Signing.** Avid requires AAX plugins to be signed with the PACE code-signing tools before retail Pro Tools will load them; an unsigned local build loads only in a Pro Tools Developer build. Release builds are signed as part of the release process (the signing tools and certificate are not in this repo).
 
 ## Support
 
