@@ -243,8 +243,25 @@ struct Strip : public juce::Component
 
         if (isFX)
         {
-            fuzz = makeTog ("FUZZ", bor::accent, bor::accentOn, "Engage fuzz");
+            fuzz = makeTog ("FUZZ", bor::accent, bor::accentOn, "Engage the drive");
             fuzzAtt = std::make_unique<BA> (p.apvts, prefix + "_fuzz", *fuzz);
+            // v0.2.0: the drive character key. The engage key's label reads
+            // the ACTIVE character (FUZZ or DIST) so it never claims a sound
+            // it is not making; TYPE cycles between the two characters.
+            type = makeTog ("TYPE", bor::bone, bor::ink,
+                            "Drive character: FUZZ (the original) or DIST (tighter, brighter)");
+            type->setClickingTogglesState (false);
+            if (auto* prm = p.apvts.getParameter (prefix + "_drivetype"))
+            {
+                typeAtt = std::make_unique<juce::ParameterAttachment> (*prm,
+                    [this] (float v)
+                    {
+                        distOn = v > 0.5f;
+                        fuzz->setButtonText (distOn ? "DIST" : "FUZZ");
+                    });
+                typeAtt->sendInitialUpdate();
+                type->onClick = [this] { typeAtt->setValueAsCompleteGesture (distOn ? 0.0f : 1.0f); };
+            }
         }
         if (hasPan)
         {
@@ -330,7 +347,15 @@ struct Strip : public juce::Component
 
         r.removeFromTop (8);
         auto fuzzRow = r.removeFromTop (22);
-        if (fuzz != nullptr) fuzz->setBounds (fuzzRow);
+        if (fuzz != nullptr)
+        {
+            if (type != nullptr)   // v0.2.0: [FUZZ|DIST engage] [TYPE]
+            {
+                type->setBounds (fuzzRow.removeFromRight (juce::jmax (36, fuzzRow.getWidth() * 2 / 5)));
+                fuzzRow.removeFromRight (3);
+            }
+            fuzz->setBounds (fuzzRow);
+        }
 
         r.removeFromTop (12);
         if (hasPan)      pan.setBounds (r.removeFromBottom (32).withSizeKeepingCentre (34, 30));
@@ -347,9 +372,11 @@ struct Strip : public juce::Component
     bool isFX, hasPan, hasAB;
     juce::String chName;
     juce::Slider gain, pan;
-    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz, ab;
+    std::unique_ptr<SquareButton> mute, solo, phase, sc, fuzz, ab, type;
     std::unique_ptr<SA> gainAtt, panAtt;
     std::unique_ptr<BA> muteAtt, soloAtt, phaseAtt, scAtt, fuzzAtt;
+    std::unique_ptr<juce::ParameterAttachment> typeAtt;   // v0.2.0 drive character
+    bool distOn = false;
     float level = 0.0f;
     bool  muted = false;
     juce::Rectangle<int> nameRect, readoutRect, meterRect;
@@ -640,11 +667,15 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         rebuildPresetMenu();
         presetBox.onChange = [this] { presetChosen(); };
 
-        // DI blend strip first (no pan — A/B audition sits there instead), then the
-        // 8 voicing layers. SUB has no pan either: the lows stay dead centre.
+        // DI blend strip first (no pan — A/B audition sits there instead), then
+        // the 10 voicing layers in DISPLAY order — rooms LAST (James, 22 Jul:
+        // "move the rooms to the channels at the end"), a pure view-level
+        // reorder: channel indices, params and sessions are untouched. SUB
+        // has no pan either: the lows stay dead centre.
         strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, panLnf));
-        for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
+        for (int k = 0; k < BoRBassEnhancerProcessor::NUM_CH; ++k)
         {
+            const int c = displayOrder[(size_t) k];
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
             strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
                                         stereo && c != 0, false, faderLnf, panLnf));
@@ -690,7 +721,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
 
 
-        setSize (1180, 784);
+        setSize (1432, 784);   // v0.2.0: 11 columns (DI + 10 strips)
         startTimerHz (30);
     }
 
@@ -718,8 +749,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             return cur;
         };
         strips[0]->setLevel (smooth (meterLevel[0], proc.getDiLevel()));
-        for (int c = 0; c < BoRBassEnhancerProcessor::NUM_CH; ++c)
-            strips[c + 1]->setLevel (smooth (meterLevel[(size_t) (c + 1)], proc.getChannelLevel (c)));
+        for (int k = 0; k < BoRBassEnhancerProcessor::NUM_CH; ++k)   // strip k+1 shows displayOrder[k]
+            strips[k + 1]->setLevel (smooth (meterLevel[(size_t) (k + 1)],
+                                             proc.getChannelLevel (displayOrder[(size_t) k])));
         analyzer->update (proc);
 
         refreshFreqButton();   // host automation can flip the analyzer param under us
@@ -736,7 +768,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "OUTPUT|"      + juce::String (proc.isStereo() ? "STEREO" : "MONO"),
                 "SAMPLE RATE|" + juce::String (proc.getSampleRate(), 0) + " Hz",
                 "BLOCK|"       + juce::String (proc.getLastBlockSize()) + " smp (host)",
-                "LATENCY|"     + juce::String (proc.getLatencySamples()) + " smp (zero-latency convolution)",
+                "LATENCY|"     + juce::String (proc.getLatencySamples())
+                               + (proc.getLatencySamples() > 0 ? " smp (HI octave lookahead)"
+                                                               : " smp (zero-latency convolution)"),
                 "FUZZ OS|4x, +" + juce::String (proc.getFuzzOsLatency(), 2) + " smp in the fuzz path",
                 "CPU|"         + juce::String (cpuDisp * 100.0f, 1) + " % of one core",
                 "XRUNS|"       + juce::String (proc.getXRunCount()) + " (callbacks over budget)",
@@ -990,6 +1024,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<UpdateCheckThread> updateThread;
     float cpuDisp = 0.0f;
 
+    // strip column k+1 shows channel displayOrder[k] — rooms last (view-only)
+    static constexpr std::array<int, BoRBassEnhancerProcessor::NUM_CH> displayOrder
+        { 0, 1, 2, 3, 4, 5, 8, 9, 6, 7 };
     std::array<float, BoRBassEnhancerProcessor::NUM_CH + 1> meterLevel {};
     int hdrRuleY = 0, botRuleY = 0, footRuleY = 0;
 };
@@ -1014,7 +1051,7 @@ BoRBassEnhancerEditor::BoRBassEnhancerEditor (BoRBassEnhancerProcessor& p)
     setResizable (true, true);
     setResizeLimits (649, 431, 1534, 1019);              // ~0.55x .. ~1.3x of the design
     if (auto* c = getConstrainer()) c->setFixedAspectRatio (1180.0 / 784.0);
-    setSize (1003, 666);                                 // ~0.85x — comfortable default
+    setSize (1217, 666);                                 // ~0.85x — comfortable default
 }
 
 BoRBassEnhancerEditor::~BoRBassEnhancerEditor() { setLookAndFeel (nullptr); }

@@ -710,6 +710,21 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
         { "Dirt Duck", { {"in_gain",4.0f},{"glue",0.4f},
                          {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
                          {"sub_duck",1.0f},{"lowcln1_duck",1.0f},{"lowcln2_duck",1.0f} } },
+        // v0.2.0 presets. The older presets need no HI edits: presets apply on
+        // top of the defaults, and the HI strips default muted.
+        // The DIST character across the FX strips — tighter and brighter than
+        // Dirt Duck's fuzz, lows ducked out of its way for the same clarity.
+        { "Dist Stack", { {"in_gain",3.0f},{"glue",0.35f},
+                          {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
+                          {"lofx57_drivetype",1.0f},{"lofx421_drivetype",1.0f},{"lofxtwt_drivetype",1.0f},
+                          {"sub_duck",1.0f},{"lowcln1_duck",1.0f} } },
+        // The HI layers over a clean bed: octave-up crunch and air on top,
+        // FX mids pulled back so the top end owns the sparkle.
+        { "Crunch Air", { {"glue",0.3f},
+                          {"hioct_mute",0.0f},{"hioct_gain",-6.0f},
+                          {"hih_mute",0.0f},{"hih_gain",-10.0f},
+                          {"lofx57_gain",0.0f},{"lofx421_gain",0.0f},
+                          {"roomnear_mute",0.0f},{"roomnear_gain",-28.0f} } },
     };
     return p;
 }
