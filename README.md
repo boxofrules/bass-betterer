@@ -15,7 +15,12 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 ## What's new in 0.2.0
 
-- **New init defaults** — a fresh instance (and the Init preset) now starts with FUZZ off on all 3 LOW FX strips (clean stack first, dirt is opt-in) and the FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a tighter, brighter distortion voice. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
+- **Two new HI layers: HI CRUNCH and HI AIR** — an octave-up shifter feeding two driven top layers, for sparkle and bite above the stack. They ship muted; unmute to bring them in. While one is unmuted the plugin reports a small lookahead latency to your DAW (the shifter needs it); muted, everything stays zero-latency as before.
+- **New presets** — Dist Stack and Crunch Air join the bank; Dirt Duck is now Dirt Wall.
+- **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
+- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, HI layers muted, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
 - **Experimental AAX build support** — a local, unsigned AAX build target for Pro Tools Developer builds. Not part of the Release downloads yet. See [Building the AAX target](#building-the-aax-target).
 
 ## Channels and controls
@@ -27,7 +32,8 @@ A real bass record is never one signal. It is a foundation you feel, a body you 
 | DI | The original dry DI tone, blended back in. Muted by default. Carries the A/B button. |
 | SUB | The foundation. Always on, dead centre. |
 | LOW CLEAN | Body and warmth. |
-| LOW FX | Grit and aggression, with an engageable FUZZ. |
+| LOW FX | Grit and aggression, with an engageable drive (FUZZ or DIST). |
+| HI | Octave-up crunch and air on top of the stack (HI CRUNCH / HI AIR). Muted by default. |
 | ROOM | Air and space around the whole thing. |
 
 Every layer is a channel strip with the same controls.
@@ -39,7 +45,8 @@ Every layer is a channel strip with the same controls.
 | S | Solo. |
 | Pan | Placement in the stereo field (shown only in stereo; SUB and DI have none — they stay dead centre). |
 | Ø | Phase (polarity) invert. |
-| FUZZ | Engage the dirt. LOW FX layers only. |
+| FUZZ / DIST | Engage the drive; the key reads the active character. Drive-capable layers only. |
+| TYPE | Switch the drive character between FUZZ and DIST. |
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
 
