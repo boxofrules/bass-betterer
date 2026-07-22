@@ -7,19 +7,25 @@
 // isRoom, default gain (dB), default mute.
 const std::array<BoRBassEnhancerProcessor::ChanDef, BoRBassEnhancerProcessor::NUM_CH>
 BoRBassEnhancerProcessor::channels = {{
-    { "sub",     "SUB",                false, false,   0.0f, false },
-    { "lowcln1", "LOW CLEAN BAND 1",   false, false,  -2.0f, false },
-    { "lowcln2", "LOW CLEAN BAND 2",   false, false,  -5.0f, false },
+    { "sub",     "SUB",                false, false, false,   0.0f, false },
+    { "lowcln1", "LOW CLEAN BAND 1",   false, false, false,  -2.0f, false },
+    { "lowcln2", "LOW CLEAN BAND 2",   false, false, false,  -5.0f, false },
     // FX defaults sit |fuzz trim| above the old -4/-8/-14 so the shipped fuzz-on
     // tone is unchanged now the fuzz path is loudness-matched to clean (see below)
-    { "lofx57",  "LOW FX 57",          true,  false,   7.2f, false },
-    { "lofx421", "LOW FX 421",         true,  false,   8.1f, false },
-    { "lofxtwt", "LOW FX TWEETER",     true,  false,  -2.6f, false },
+    { "lofx57",  "LOW FX 57",          true,  false, false,   7.2f, false },
+    { "lofx421", "LOW FX 421",         true,  false, false,   8.1f, false },
+    { "lofxtwt", "LOW FX TWEETER",     true,  false, false,  -2.6f, false },
     // Rooms ship unmuted but at the fader floor (-60 dB = silent in the sum), so
     // bringing a room in is one fader move, not unmute-then-raise. Default tone is
     // unchanged. (Producer feedback: "1 click to use them, rather than 2.")
-    { "roomnear","ROOM NEAR",          false, true,  -60.0f, false },
-    { "roomfar", "ROOM FAR",           false, true,  -60.0f, false },
+    { "roomnear","ROOM NEAR",          false, true,  false, -60.0f, false },
+    { "roomfar", "ROOM FAR",           false, true,  false, -60.0f, false },
+    // v0.2.0 HI layers: DI -> shared octave-up shifter -> drive -> HI cab IR.
+    // APPENDED so every existing channel index (FX 3-5, rooms 6-7, the SC key)
+    // is untouched. Both ship MUTED: old sessions and fresh instances render
+    // byte-identically to v0.1.x and stay zero-latency until engaged.
+    { "hioct",   "HI CRUNCH",          true,  false, true,    0.0f, true  },
+    { "hih",     "HI AIR",             true,  false, true,    0.0f, true  },
 }};
 
 // channel -> embedded clean/room voicing IR
@@ -35,6 +41,8 @@ static const char* irForChannel (int i, int& size)
         case 5: size = BinaryData::ir_lofxtwt_clean_wavSize;return BinaryData::ir_lofxtwt_clean_wav;
         case 6: size = BinaryData::ir_roomnear_wavSize;     return BinaryData::ir_roomnear_wav;
         case 7: size = BinaryData::ir_roomfar_wavSize;      return BinaryData::ir_roomfar_wav;
+        case 8: size = BinaryData::ir_hioct_wavSize;        return BinaryData::ir_hioct_wav;
+        case 9: size = BinaryData::ir_hih_wavSize;          return BinaryData::ir_hih_wav;
         default: size = 0; return nullptr;
     }
 }
@@ -68,7 +76,16 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
         pPhase[(size_t) c] = P (id + "_phase");
         pDuck [(size_t) c] = P (id + "_duck");
         pFuzz [(size_t) c] = channels[(size_t) c].isFX ? P (id + "_fuzz") : nullptr;
+        pDriveType[(size_t) c] = channels[(size_t) c].isFX ? P (id + "_drivetype") : nullptr;
     }
+
+    // v0.2.0: the DIST character's fitted values ride the encrypted asset
+    // pack (embedded like the IRs). A malformed blob falls back to FUZZ.
+    drive::loadFits (BinaryData::drive_fits_bin, BinaryData::drive_fits_binSize);
+
+    // latency policy inputs: the HI strips' mute params (see refreshLatency)
+    for (int hi = 0; hi < NUM_HI; ++hi)
+        apvts.addParameterListener (juce::String (channels[(size_t) (FIRST_HI + hi)].id) + "_mute", this);
     pInGain   = P ("in_gain");
     pOutGain  = P ("out_gain");
     pGlue     = P ("glue");
@@ -86,6 +103,12 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     // setStateInformation() replaces apvts.state wholesale for a restored session,
     // so this has no effect once a saved session/preset is loaded.
     apvts.state.setProperty ("freqView", "all", nullptr);
+}
+
+BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor()
+{
+    for (int hi = 0; hi < NUM_HI; ++hi)
+        apvts.removeParameterListener (juce::String (channels[(size_t) (FIRST_HI + hi)].id) + "_mute", this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::createLayout()
@@ -109,12 +132,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_phase", 1 }, nm + " Phase", false));
         // SC = duck this layer from the LO FX (dirt) sidechain key
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_duck", 1 }, nm + " Sidechain", false));
-        // v0.2.0: FUZZ now defaults OFF on a fresh instance/Init preset (clean stack
-        // first, dirt is an opt-in choice) — saved sessions/other factory presets that
-        // explicitly set _fuzz are unaffected; migrateState()'s "missing node means
-        // engaged" fallback stays true since it only interprets pre-stateVersion-2 XML.
+        // v0.2.0: FUZZ defaults OFF on the LO FX strips on a fresh instance/Init
+        // preset (clean stack first, dirt is an opt-in choice) — saved sessions/
+        // other factory presets that explicitly set _fuzz are unaffected;
+        // migrateState()'s "missing node means engaged" fallback stays true since
+        // it only interprets pre-stateVersion-2 XML. The HI strips default ON:
+        // the drive is their identity (they also ship muted).
         if (ch.isFX)
-            layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_fuzz", 1 }, nm + " Fuzz", false));
+        {
+            layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_fuzz", 1 }, nm + " Drive", ch.isHI));
+            // v0.2.0: the drive character — FUZZ (the original, byte-identical
+            // to every earlier release) or DIST (tighter, brighter; the fitted
+            // values ship in the encrypted asset pack). LO strips default
+            // FUZZ, HI strips default DIST (their native character). The
+            // choice list is append-only from here.
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { id + "_drivetype", 1 }, nm + " Drive Type",
+                StringArray { "FUZZ", "DIST" }, ch.isHI ? 1 : 0));
+        }
     }
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "in_gain", 1 }, "Input Gain",
@@ -171,20 +206,30 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
         fuzzConvs[(size_t) fx].prepare (monoSpec);
     }
 
-    // LO FX drive chains (v0.2.0: the drive:: tables replace the old inline
+    // Drive chains (v0.2.0: the drive:: tables replace the old inline
     // configure constants — same numbers, same sound). The per-strip locks
     // carry the mic-chain shaping + the level trim that equalises drive
     // loudness to the clean voicing at the same fader (K-weighted match
     // measured with `tools/bor-bench cal`); the character is FUZZ (the locked
     // v1 constants, byte-identical to every earlier release — bor-bench fnv)
     // or DIST from the encrypted pack, selected per block in renderLayer.
-    for (int slot = 0; slot < 3; ++slot)
+    for (int slot = 0; slot < 5; ++slot)
     {
-        fuzz[(size_t) slot].setLocks (drive::LOCKS[(size_t) slot]);
-        fuzz[(size_t) slot].setCharacter (drive::FUZZ[(size_t) slot]);
+        const int c = slot < 3 ? slot + 3 : FIRST_HI + (slot - 3);
+        const bool dist = pDriveType[(size_t) c] != nullptr && pDriveType[(size_t) c]->load() > 0.5f;
+        auto lk = drive::LOCKS[(size_t) slot];   // + the character's measured loudness adjust
+        lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
+        fuzz[(size_t) slot].setLocks (lk);
+        fuzz[(size_t) slot].setCharacter (dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot]);
     }
     for (auto& fz : fuzz) fz.prepare (sampleRate, samplesPerBlock);
     fuzzOsLat.store (fuzz[0].oversamplingLatency(), std::memory_order_relaxed);
+
+    // v0.2.0 HI layers: the shared octave-up shifter + its output buffer
+    shifter.prepare (sampleRate);
+    hiShift.allocate ((size_t) samplesPerBlock, true);
+    shifterIdle = true;
+    hiIdle.fill (true);
 
     juce::dsp::ProcessSpec stereoSpec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
     glueComp.prepare (stereoSpec);
@@ -221,6 +266,27 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     for (int fx = 0; fx < 3; ++fx)
         prevFuzzOn[(size_t) fx] = pFuzz[(size_t) (fx + 3)]->load() > 0.5f;
     roomIdle.fill (false);
+
+    // latency policy: prepare is the canonical place to report it; runtime
+    // mute flips go through the async updater (never processBlock)
+    refreshLatency();
+}
+
+// Report the octave shifter's latency to the host only while it is actually
+// needed — at least one HI strip unmuted. Both HI strips ship muted, so a
+// fresh instance (and every pre-v0.2.0 session) is always zero-latency.
+// Solo state is deliberately ignored: mute is the explicit "this strip is
+// out" gesture, and latency flapping with solo auditions would re-sync the
+// whole session on every solo.
+void BoRBassEnhancerProcessor::refreshLatency()
+{
+    bool needShifter = false;
+    for (int hi = 0; hi < NUM_HI; ++hi)
+        if (pMute[(size_t) (FIRST_HI + hi)]->load() <= 0.5f)
+            needShifter = true;
+    const int lat = needShifter ? shifter.latencySamples() : 0;
+    if (lat != getLatencySamples())
+        setLatencySamples (lat);
 }
 
 // ---- spectrum analyzer SPSC fifos -------------------------------------------
@@ -328,14 +394,28 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         auto* w = work.getWritePointer (0);
         juce::FloatVectorOperations::copy (w, src, n);
 
+        const int  slot   = driveSlotFor (c);
         const bool fuzzOn = def.isFX && pFuzz[(size_t) c] != nullptr && pFuzz[(size_t) c]->load() > 0.5f;
-        if (def.isFX && fuzzOn != prevFuzzOn[(size_t) (c - 3)])
+        if (fuzzOn)
+        {
+            // v0.2.0: select this strip's drive character (FUZZ or DIST) —
+            // cheap when unchanged, glides (no reset) when switched live.
+            // Locks carry the character's measured loudness adjust so a
+            // character switch holds level (bor-bench cal).
+            const bool dist = pDriveType[(size_t) c] != nullptr && pDriveType[(size_t) c]->load() > 0.5f;
+            auto lk = drive::LOCKS[(size_t) slot];
+            lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
+            fuzz[(size_t) slot].setLocks (lk);
+            fuzz[(size_t) slot].setCharacter (dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot]);
+        }
+        if (def.isFX && ! def.isHI && fuzzOn != prevFuzzOn[(size_t) slot])
         {
             // the conv we're switching to hasn't been fed since the last toggle —
-            // flush its FIFOs or it replays a stale tail
-            if (fuzzOn) fuzzConvs[(size_t) (c - 3)].reset();
+            // flush its FIFOs or it replays a stale tail. (LO FX only: the HI
+            // strips run ONE cab IR for both the clean and driven paths.)
+            if (fuzzOn) fuzzConvs[(size_t) slot].reset();
             else        convs[(size_t) c].reset();
-            prevFuzzOn[(size_t) (c - 3)] = fuzzOn;
+            prevFuzzOn[(size_t) slot] = fuzzOn;
         }
         // only this block's n samples — wrapping all of `work` (sized to the host max)
         // feeds stale samples back through the convolution when the host renders
@@ -344,9 +424,9 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         juce::dsp::ProcessContextReplacing<float> ctx (cb);
         if (fuzzOn)
         {
-            fuzz[(size_t) (c - 3)].processPreCab (w, n);
-            fuzzConvs[(size_t) (c - 3)].process (ctx);
-            fuzz[(size_t) (c - 3)].processPostCab (w, n);
+            fuzz[(size_t) slot].processPreCab (w, n);
+            (def.isHI ? convs[(size_t) c] : fuzzConvs[(size_t) slot]).process (ctx);
+            fuzz[(size_t) slot].processPostCab (w, n);
         }
         else
         {
@@ -378,6 +458,48 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         }
         if (idle) { convs[(size_t) c].reset(); idle = false; }
         renderLayer (c, voiceMono.getData());
+    }
+
+    // ---- v0.2.0 HI layers: DI -> ONE shared octave-up shifter -> per-strip
+    // drive -> HI cab IR. The shifter only RUNS while an audible HI strip
+    // consumes it (CPU discipline, same rule as the reported latency in
+    // refreshLatency). Both strips silent (the shipped default) => nothing
+    // here runs and the mix stays byte-identical to v0.1.x (bor-bench fnv).
+    // The HI layers do NOT feed voiceMono: the room mics belong to the LO
+    // rig, and the pre-fader room feed must not change under strips that
+    // ship dark.
+    {
+        std::array<bool, NUM_HI> hiRender {};
+        bool anyShift = false;
+        for (int hi = 0; hi < NUM_HI; ++hi)
+        {
+            const int c = FIRST_HI + hi;
+            hiRender[(size_t) hi] = ! (gain[(size_t) c] == 0.0f
+                                       && smLg[(size_t) c] == 0.0f && smRg[(size_t) c] == 0.0f);
+            anyShift = anyShift || hiRender[(size_t) hi];
+        }
+        if (anyShift)
+        {
+            // coming back from silence: the ring holds stale (old) audio — start clean
+            if (shifterIdle) shifter.reset();
+            shifterIdle = false;
+            shifter.processBlock (mono, hiShift.getData(), n);
+        }
+        else
+            shifterIdle = true;
+        for (int hi = 0; hi < NUM_HI; ++hi)
+        {
+            const int c = FIRST_HI + hi;
+            auto& idle = hiIdle[(size_t) hi];
+            if (! hiRender[(size_t) hi]) { idle = true; continue; }
+            if (idle)
+            {
+                convs[(size_t) c].reset();
+                fuzz[(size_t) driveSlotFor (c)].reset();
+                idle = false;
+            }
+            renderLayer (c, hiShift.getData());
+        }
     }
 
     // ---- sidechain key = LO FX (3,4,5) post-gain sum -> follower -> per-sample duck gain ----
@@ -520,7 +642,7 @@ void BoRBassEnhancerProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 2);
+        xml->setAttribute ("stateVersion", 3);
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -548,6 +670,10 @@ static void migrateState (juce::XmlElement& xml)
     }
     xml.setAttribute ("stateVersion", 2);
 }
+// stateVersion 3 (v0.2.0) adds the HI strips and the per-strip drive type.
+// No value migration is needed: every new parameter's default reproduces the
+// old behaviour exactly (HI strips muted, LO drive type FUZZ), so a v2
+// session loads bit-identically with the new params at their defaults.
 
 void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
@@ -621,7 +747,7 @@ bool BoRBassEnhancerProcessor::saveUserPreset (const juce::String& name)
     auto f = getUserPresetDir().getChildFile (juce::File::createLegalFileName (name) + ".xml");
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 2);
+        xml->setAttribute ("stateVersion", 3);
         return xml->writeTo (f);
     }
     return false;

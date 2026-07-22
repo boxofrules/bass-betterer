@@ -116,23 +116,33 @@ static int runCal()
 {
     const double sr = 48000.0; const int block = 512;
     const auto sig = synthBassDI (sr, 8.0);
-    const char* fxIds[] = { "lofx57", "lofx421", "lofxtwt" };
+    struct StripDef { const char* id; bool hi; };
+    const StripDef strips[] = { { "lofx57", false }, { "lofx421", false }, { "lofxtwt", false },
+                                { "hioct", true }, { "hih", true } };
 
-    std::printf ("FUZZ vs CLEAN loudness per LO FX strip (K-weighted, soloed, gain 0 dB)\n");
-    for (auto* id : fxIds)
+    // v0.2.0: three renders per drive strip — clean, FUZZ, DIST — soloed at
+    // gain 0. The baked levelDb trims equalise FUZZ to clean; the printed
+    // DIST adjust is the extra per-character trim (drive::DIST_TRIM_DB) that
+    // brings DIST level with clean through the SAME locks. HI strips: "clean"
+    // is the shifted signal through the cab IR with drive off.
+    std::printf ("drive vs clean loudness per strip (K-weighted, soloed, gain 0 dB)\n");
+    for (const auto& sdef : strips)
     {
-        double lDb[2] = {};
-        for (int fz = 0; fz < 2; ++fz)
+        const juce::String id (sdef.id);
+        double lDb[3] = {};
+        for (int mode = 0; mode < 3; ++mode)   // 0 clean, 1 FUZZ, 2 DIST
         {
             auto p = makeProc (sr, block);
             setParam (*p, "analyzer", 0.0f);
-            setParam (*p, juce::String (id) + "_solo", 1.0f);
-            setParam (*p, juce::String (id) + "_gain", 0.0f);
-            setParam (*p, juce::String (id) + "_fuzz", (float) fz);
-            lDb[fz] = renderLoudness (*p, sig, sr, block, 1.0);
+            setParam (*p, id + "_solo", 1.0f);
+            setParam (*p, id + "_gain", 0.0f);
+            if (sdef.hi) setParam (*p, id + "_mute", 0.0f);
+            setParam (*p, id + "_fuzz", mode > 0 ? 1.0f : 0.0f);
+            setParam (*p, id + "_drivetype", mode == 2 ? 1.0f : 0.0f);
+            lDb[mode] = renderLoudness (*p, sig, sr, block, 1.0);
         }
-        std::printf ("  %-8s  clean %7.2f dB   fuzz %7.2f dB   delta %+6.2f dB  -> trim %+6.2f dB\n",
-                     id, lDb[0], lDb[1], lDb[1] - lDb[0], lDb[0] - lDb[1]);
+        std::printf ("  %-8s  clean %7.2f   FUZZ %7.2f (d %+6.2f)   DIST %7.2f (d %+6.2f)  -> DIST adjust %+6.2f dB\n",
+                     sdef.id, lDb[0], lDb[1], lDb[1] - lDb[0], lDb[2], lDb[2] - lDb[0], lDb[0] - lDb[2]);
     }
     return 0;
 }
@@ -219,15 +229,20 @@ static int runFnv()
     const double sr = 48000.0; const int block = 512;
     const auto sig = synthBassDI (sr, 6.0);
 
-    struct Cfg { const char* name; bool fuzz; const char* solo; };
+    struct Cfg { const char* name; bool fuzz; bool dist; const char* solo; bool unmuteSolo; };
     const Cfg cfgs[] = {
-        { "default (fresh instance)   ", false, nullptr },
-        { "fuzz on x3                 ", true,  nullptr },
-        { "fuzz on, solo lofx57       ", true,  "lofx57" },
-        { "fuzz on, solo lofx421      ", true,  "lofx421" },
-        { "fuzz on, solo lofxtwt      ", true,  "lofxtwt" },
+        { "default (fresh instance)   ", false, false, nullptr,   false },
+        { "fuzz on x3                 ", true,  false, nullptr,   false },
+        { "fuzz on, solo lofx57       ", true,  false, "lofx57",  false },
+        { "fuzz on, solo lofx421      ", true,  false, "lofx421", false },
+        { "fuzz on, solo lofxtwt      ", true,  false, "lofxtwt", false },
+        // v0.2.0 additions (new fingerprints, recorded not inherited)
+        { "DIST on x3                 ", true,  true,  nullptr,   false },
+        { "DIST on, solo lofx57       ", true,  true,  "lofx57",  false },
+        { "HI CRUNCH solo (unmuted)   ", false, false, "hioct",   true  },
+        { "HI AIR solo (unmuted)      ", false, false, "hih",     true  },
     };
-    std::printf ("render fingerprints (FNV-1a, 6s synth DI, 48k/512)\n");
+    std::printf ("render fingerprints (FNV-1a, 6s synth DI, 48k/512) + K-weighted loudness\n");
     for (const auto& c : cfgs)
     {
         auto p = makeProc (sr, block);
@@ -235,9 +250,26 @@ static int runFnv()
         if (c.fuzz)
             for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
                 setParam (*p, juce::String (id) + "_fuzz", 1.0f);
-        if (c.solo != nullptr) setParam (*p, juce::String (c.solo) + "_solo", 1.0f);
-        std::printf ("  %s %016llx\n", c.name,
-                     (unsigned long long) renderChecksum (*p, sig, block));
+        if (c.dist)
+            for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
+                setParam (*p, juce::String (id) + "_drivetype", 1.0f);
+        if (c.solo != nullptr)
+        {
+            setParam (*p, juce::String (c.solo) + "_solo", 1.0f);
+            if (c.unmuteSolo) setParam (*p, juce::String (c.solo) + "_mute", 0.0f);
+        }
+        const auto h = renderChecksum (*p, sig, block);
+        auto p2 = makeProc (sr, block);
+        setParam (*p2, "analyzer", 0.0f);
+        if (c.fuzz) for (auto* id : { "lofx57", "lofx421", "lofxtwt" }) setParam (*p2, juce::String (id) + "_fuzz", 1.0f);
+        if (c.dist) for (auto* id : { "lofx57", "lofx421", "lofxtwt" }) setParam (*p2, juce::String (id) + "_drivetype", 1.0f);
+        if (c.solo != nullptr)
+        {
+            setParam (*p2, juce::String (c.solo) + "_solo", 1.0f);
+            if (c.unmuteSolo) setParam (*p2, juce::String (c.solo) + "_mute", 0.0f);
+        }
+        const double lk = renderLoudness (*p2, sig, sr, block, 1.0);
+        std::printf ("  %s %016llx  %7.2f dB\n", c.name, (unsigned long long) h, lk);
     }
     return 0;
 }

@@ -83,7 +83,10 @@ juce_add_binary_data(BoREnhancerIR SOURCES
     ir/ir_lofx421_fuzz.wav
     ir/ir_lofxtwt_fuzz.wav
     ir/ir_roomnear.wav
-    ir/ir_roomfar.wav)
+    ir/ir_roomfar.wav
+    ir/ir_hioct.wav
+    ir/ir_hih.wav
+    ir/drive_fits.bin)
 
 # Binary data must be PIC so it can link into the shared plugin formats.
 set_target_properties(BoREnhancerIR PROPERTIES POSITION_INDEPENDENT_CODE TRUE)

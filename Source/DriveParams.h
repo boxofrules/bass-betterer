@@ -79,6 +79,14 @@ inline constexpr std::array<Params, NUM_DRIVE_STRIPS> FUZZ { {
     { { 1.515625f, 1.0f, 0.0f, 0.2f, 0.7f, 1.0f, 0.0f, -1.2f, 0.0f, 2.8f } },   // HI AIR (TWT character)
 } };
 
+// Per-character loudness adjusts ON TOP of the strip locks' levelDb
+// (measured with `bor-bench cal`, v0.2.0): the baked levelDb trims were
+// measured on FUZZ for the LO strips and on DIST for the HI strips, so the
+// OTHER character on each strip carries its own measured adjust. FUZZ on the
+// LO strips is 0.0 BY CONTRACT — byte-identity with every earlier release.
+inline constexpr std::array<float, NUM_DRIVE_STRIPS> FUZZ_TRIM_DB { { 0.0f, 0.0f, 0.0f,  4.00f,  3.64f } };
+inline constexpr std::array<float, NUM_DRIVE_STRIPS> DIST_TRIM_DB { { 4.32f, -0.33f, -5.62f, 1.30f, -0.17f } };
+
 // DIST — the fitted distortion character. Values arrive at runtime from the
 // encrypted asset pack (ir/drive_fits.bin, embedded as BinaryData like the
 // IRs): 'B''B''F''1' + 3 rows x 10 float32 LE (LOW-shared, HI CRUNCH, HI AIR).
