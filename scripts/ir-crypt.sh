@@ -31,11 +31,13 @@ case "$cmd" in
     [[ -f "$blob" ]] || { echo "ERROR: missing $blob" >&2; exit 1; }
     openssl enc -d -aes-256-cbc -pbkdf2 -iter "$iter" -pass "pass:$BOR_IR_KEY" -in "$blob" \
       | tar -xzf - -C "$ir"
-    echo "Decrypted $(cd "$ir" && ls *.wav | wc -l | tr -d ' ') IR wav(s) into $ir"
+    echo "Decrypted $(cd "$ir" && ls *.wav *.bin 2>/dev/null | wc -l | tr -d ' ') pack file(s) into $ir"
     ;;
   encrypt)
     cd "$ir"
-    wavs=(*.wav)
+    # v0.2.0: the pack carries the IR wavs AND the drive-fit table (the DIST
+    # character's fitted values live encrypted, same policy as the IRs)
+    wavs=(*.wav *.bin)
     [[ -e "${wavs[0]}" ]] || { echo "ERROR: no ir/*.wav to encrypt" >&2; exit 1; }
     tar -czf - "${wavs[@]}" \
       | openssl enc -aes-256-cbc -pbkdf2 -iter "$iter" -salt -pass "pass:$BOR_IR_KEY" -out "$blob"

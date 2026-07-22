@@ -13,6 +13,16 @@ A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
 
+## What's new in 0.2.0
+
+- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a tighter, brighter distortion voice. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
+- **Two new HI layers: HI CRUNCH and HI AIR** — an octave-up shifter feeding two driven top layers, for sparkle and bite above the stack. They ship muted; unmute to bring them in. While one is unmuted the plugin reports a small lookahead latency to your DAW (the shifter needs it); muted, everything stays zero-latency as before.
+- **New presets** — Dist Stack and Crunch Air join the bank; Dirt Duck is now Dirt Wall.
+- **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
+- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, HI layers muted, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
+- **Experimental AAX build support** — a local, unsigned AAX build target for Pro Tools Developer builds. Not part of the Release downloads yet. See [Building the AAX target](#building-the-aax-target).
+
 ## Channels and controls
 
 A real bass record is never one signal. It is a foundation you feel, a body you hear, dirt that bites, and the room around all of it, balanced live. **Bass Better-er** bottles that as parallel frequency role layers. They overlap rather than brick wall, the lows stay mono and centred, and the stereo image widens as it climbs. It holds together on a phone and opens up on a big system.
@@ -22,7 +32,8 @@ A real bass record is never one signal. It is a foundation you feel, a body you 
 | DI | The original dry DI tone, blended back in. Muted by default. Carries the A/B button. |
 | SUB | The foundation. Always on, dead centre. |
 | LOW CLEAN | Body and warmth. |
-| LOW FX | Grit and aggression, with an engageable FUZZ. |
+| LOW FX | Grit and aggression, with an engageable drive (FUZZ or DIST). |
+| HI | Octave-up crunch and air on top of the stack (HI CRUNCH / HI AIR). Muted by default. |
 | ROOM | Air and space around the whole thing. |
 
 Every layer is a channel strip with the same controls.
@@ -34,10 +45,8 @@ Every layer is a channel strip with the same controls.
 | S | Solo. |
 | Pan | Placement in the stereo field (shown only in stereo; SUB and DI have none — they stay dead centre). |
 | Ø | Phase (polarity) invert. |
-| SC | Sidechain. Duck this layer when the dirt hits, keyed off the LOW FX. |
-| FUZZ | Engage the dirt. LOW FX layers only. |
-
-**Sidechain ducking:** the LOW FX dirt acts as a sidechain key. Arm SC on any layer, even the SUB, and it ducks out of the way when the dirt comes in, so the grit cuts through without the low end fighting it.
+| FUZZ / DIST | Engage the drive; the key reads the active character. Drive-capable layers only. |
+| TYPE | Switch the drive character between FUZZ and DIST. |
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
 
@@ -52,13 +61,13 @@ Every layer is a channel strip with the same controls.
 
 In ALL view the spectrum draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
 
-**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Duck, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
+**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Crunch Air, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
 
 ## How it works (tech FAQ)
 
 The honest engineering answers, for those who asked.
 
-**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase / duck → stereo sum → GLUE → OUTPUT gain`. The ROOM layers are fed the blended sum of the voicing layers rather than the raw DI, the way a room hears a rig. The DI strip taps the input before INPUT gain, so it stays truly dry.
+**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase → stereo sum → GLUE → OUTPUT gain`. The ROOM layers are fed the blended sum of the voicing layers rather than the raw DI, the way a room hears a rig. The DI strip taps the input before INPUT gain, so it stays truly dry.
 
 **What is each layer, really?** A measured impulse response of a real studio capture chain (instrument, amplification, transducer, and desk), one per frequency role, convolved in real time. The capture chain itself is the proprietary part and stays undisclosed.
 
@@ -84,7 +93,6 @@ The honest engineering answers, for those who asked.
 | IR / convolution | An impulse response is a sonic fingerprint of a real signal chain. Convolution applies that fingerprint to your signal in real time, so it takes on the captured character. |
 | Fuzz | Heavy, saturated distortion — the aggressive layer of the sound. Here it lives on the LOW FX strips only, leaving the foundation clean underneath. |
 | Glue | Gentle compression applied to the summed mix so the parallel layers move together and read as one instrument. |
-| Sidechain duck (SC) | One signal automatically lowering another. Arm SC on a layer and it dips out of the way whenever the LOW FX dirt hits, then comes back. |
 | Phase invert (Ø) | Flips a layer's waveform upside down. If two layers cancel each other and sound thin, flipping one often locks them back in. |
 | Mono fold-down | How the sound survives on a single speaker (phones, club PA subs). The lows here are mono by design, so it does. |
 | A/B | Quick comparison between two states — here, the untouched DI versus the full processed stack. |
@@ -118,6 +126,22 @@ The macOS build is Developer ID signed and notarized by Apple, so the installer 
 Restart your DAW, rescan plug-ins, then drop it on a bass DI track.
 
 **Standalone app (no DAW needed):** each Release also has `Bass-Better-er-{macOS,Windows,Linux}-Standalone.zip`. The standalone is **not installed anywhere** — unzip it wherever you like and run the app directly (`Bass Better-er.app` / `.exe` / the `Bass Better-er` binary). It picks an audio input/output device and runs the same tone stack without a host. The macOS app is signed + notarized, so it opens with no Gatekeeper prompt; the Windows app is unsigned, so SmartScreen may warn — **More info → Run anyway**.
+
+## Building the AAX target
+
+**Experimental, developer-only.** Pro Tools support is not part of the Release downloads — there's a working local build, but nothing you can load in retail Pro Tools yet.
+
+Bass Better-er can optionally build an AAX format alongside AU/VST3/Standalone if you point the build at a local checkout of the (free) Avid AAX SDK:
+
+```sh
+cmake -B build-aax -DCMAKE_BUILD_TYPE=Release -DBOR_NATIVE_ONLY=ON \
+    -DBOR_AAX_SDK_PATH=/path/to/aax-sdk
+cmake --build build-aax --target BoRBassEnhancer_AAX -j
+```
+
+Leave `BOR_AAX_SDK_PATH` unset (the default) and the build is identical to before — AU/VST3/Standalone only, exactly like CI. Setting it to a valid SDK path adds `AAX` to the build's formats; JUCE builds the AAX wrapper itself from that SDK, no extra plugin code needed. The resulting `Bass Better-er.aaxplugin` builds with all 8 aux output buses intact — no bus-layout restriction was needed for AAX.
+
+**Signing is the actual blocker, not the build.** The `.aaxplugin` this produces is unsigned. Avid requires AAX plugins to be signed with a **PACE/iLok (Eden) certificate** — a paid, ongoing developer program — before Pro Tools will fully trust it; **retail Pro Tools will refuse to load an unsigned AAX plugin at all** (only a Pro Tools Developer build can load it unsigned, and even that has limits). PACE signing is pending — it's a recurring paid commitment, so it's deferred until there's a clear path to cover it. Until then this target exists for local build verification only, not for distribution.
 
 ## Support
 
