@@ -1,5 +1,6 @@
 # --- Proprietary: NEVER commit plaintext IRs or built binaries (they embed the IRs) ---
 ir/*.wav
+ir/*.bin
 *.component/
 *.vst3/
 *.aaxplugin/
