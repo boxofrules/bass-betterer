@@ -185,12 +185,70 @@ static int runBench()
     return 0;
 }
 
+// ---- byte-identity fingerprints ---------------------------------------------
+// FNV-1a checksums of full renders. The regression contract for DSP changes:
+// any refactor of the drive chain must keep these identical for the shipped
+// FUZZ voicing (run before and after; diff = you changed the sound).
+static juce::uint64 renderChecksum (BoRBassEnhancerProcessor& p, const std::vector<float>& sig, int block)
+{
+    juce::AudioBuffer<float> buf (2, block);
+    juce::MidiBuffer midi;
+    juce::uint64 h = 1469598103934665603ULL;   // FNV-1a offset basis
+    for (size_t pos = 0; pos < sig.size(); pos += (size_t) block)
+    {
+        const int n = (int) std::min ((size_t) block, sig.size() - pos);
+        buf.setSize (2, n, false, false, true);
+        for (int ch = 0; ch < 2; ++ch)
+            buf.copyFrom (ch, 0, sig.data() + pos, n);
+        p.processBlock (buf, midi);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < n; ++i)
+            {
+                juce::uint32 bits;
+                const float v = buf.getSample (ch, i);
+                std::memcpy (&bits, &v, sizeof (bits));
+                for (int b = 0; b < 4; ++b)
+                { h ^= (bits >> (8 * b)) & 0xFF; h *= 1099511628211ULL; }
+            }
+    }
+    return h;
+}
+
+static int runFnv()
+{
+    const double sr = 48000.0; const int block = 512;
+    const auto sig = synthBassDI (sr, 6.0);
+
+    struct Cfg { const char* name; bool fuzz; const char* solo; };
+    const Cfg cfgs[] = {
+        { "default (fresh instance)   ", false, nullptr },
+        { "fuzz on x3                 ", true,  nullptr },
+        { "fuzz on, solo lofx57       ", true,  "lofx57" },
+        { "fuzz on, solo lofx421      ", true,  "lofx421" },
+        { "fuzz on, solo lofxtwt      ", true,  "lofxtwt" },
+    };
+    std::printf ("render fingerprints (FNV-1a, 6s synth DI, 48k/512)\n");
+    for (const auto& c : cfgs)
+    {
+        auto p = makeProc (sr, block);
+        setParam (*p, "analyzer", 0.0f);
+        if (c.fuzz)
+            for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
+                setParam (*p, juce::String (id) + "_fuzz", 1.0f);
+        if (c.solo != nullptr) setParam (*p, juce::String (c.solo) + "_solo", 1.0f);
+        std::printf ("  %s %016llx\n", c.name,
+                     (unsigned long long) renderChecksum (*p, sig, block));
+    }
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
     const juce::String mode = argc > 1 ? argv[1] : "";
     if (mode == "cal")   return runCal();
     if (mode == "bench") return runBench();
-    std::printf ("usage: bor-bench cal|bench\n");
+    if (mode == "fnv")   return runFnv();
+    std::printf ("usage: bor-bench cal|bench|fnv\n");
     return 1;
 }
