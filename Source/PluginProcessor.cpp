@@ -130,7 +130,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
             ParameterID { id + "_pan", 1 }, nm + " Pan",
             NormalisableRange<float> (-1.0f, 1.0f, 0.01f), 0.0f));
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_phase", 1 }, nm + " Phase", false));
-        // SC = duck this layer from the LO FX (dirt) sidechain key
+        // v0.2.0: sidechain ducking left the free plugin (premium feature).
+        // The `_duck` params stay DECLARED for session/state compatibility —
+        // the surface is append-only once shipped — but nothing reads them.
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_duck", 1 }, nm + " Sidechain", false));
         // v0.2.0: FUZZ defaults OFF on the LO FX strips on a fresh instance/Init
         // preset (clean stack first, dirt is an opt-in choice) — saved sessions/
@@ -241,13 +243,7 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     work.setSize   (1, samplesPerBlock);
     outBus.setSize (2, samplesPerBlock);
     layerBuf.setSize (NUM_CH, samplesPerBlock);
-    keyEnv.allocate ((size_t) samplesPerBlock, true);
     voiceMono.allocate ((size_t) samplesPerBlock, true);
-
-    // sidechain follower: 5 ms attack, 140 ms release
-    scEnv = 0.0f;
-    scAtk = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.005));
-    scRel = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.140));
 
     for (int w = 0; w < 2; ++w)
     {
@@ -377,14 +373,6 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const bool  diActive = (pDiMute->load() <= 0.5f) && (! anySolo || pDiSolo->load() > 0.5f);
     const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load(), -60.0f) : 0.0f;
 
-    // duck flags, read once so the key computation and the mix agree this block
-    std::array<bool, NUM_CH> duck {};
-    bool anyDuck = false;
-    for (int c = 0; c < NUM_CH; ++c)
-    { duck[(size_t) c] = pDuck[(size_t) c]->load() > 0.5f; anyDuck = anyDuck || duck[(size_t) c]; }
-    const bool diDuck = pDiDuck->load() > 0.5f;
-    anyDuck = anyDuck || diDuck;
-
     // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf; build room feed ----
     juce::FloatVectorOperations::clear (voiceMono, n);
 
@@ -502,22 +490,8 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         }
     }
 
-    // ---- sidechain key = LO FX (3,4,5) post-gain sum -> follower -> per-sample duck gain ----
-    // only computed while some strip has SC engaged; the follower resumes from a
-    // stale envelope when re-engaged, which the 5 ms attack swallows within a block
-    constexpr float SC_THRESH = -32.0f, SC_AMOUNT = 0.7f, SC_MAXRED = 12.0f;
-    if (anyDuck)
-        for (int s = 0; s < n; ++s)
-        {
-            float k = 0.0f;
-            for (int c = 3; c <= 5; ++c) k += layerBuf.getReadPointer (c)[s] * gain[(size_t) c];
-            k = std::abs (k);
-            scEnv += (k > scEnv ? scAtk : scRel) * (k - scEnv);
-            const float kdb  = juce::Decibels::gainToDecibels (scEnv, -100.0f);
-            const float over = juce::jmax (0.0f, kdb - SC_THRESH);
-            const float red  = juce::jmin (SC_MAXRED, over * SC_AMOUNT);
-            keyEnv[(size_t) s] = juce::Decibels::decibelsToGain (-red);   // 0..1 duck multiplier
-        }
+    // (v0.2.0: the LO FX sidechain duck left the free plugin — premium
+    // feature. The retired `_duck` params are declared-but-inert.)
 
     // ---- PASS 2: mix to stereo with per-strip pan + optional sidechain duck; publish meters --
     outBus.clear (0, 0, n);   // only this block's samples (the buffer is sized to the host max)
@@ -527,7 +501,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     // ramps from the previous block's effective L/R gains to this block's targets,
     // so gain/pan moves AND mute/solo cuts glide instead of stepping
-    auto mixStrip = [&] (const float* lc, float g, bool duckOn, float pan, float phase,
+    auto mixStrip = [&] (const float* lc, float g, float pan, float phase,
                          float& prevLg, float& prevRg, std::atomic<float>& levelOut)
     {
         const float ang = (pan * 0.5f + 0.5f) * juce::MathConstants<float>::halfPi;
@@ -542,7 +516,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             const float r  = (float) (s + 1) * rampInc;
             const float lg = prevLg + (tLg - prevLg) * r;
             const float rg = prevRg + (tRg - prevRg) * r;
-            const float v  = lc[s] * (duckOn ? keyEnv[(size_t) s] : 1.0f);
+            const float v  = lc[s];
             outL[s] += v * lg;
             outR[s] += v * rg;
             pk = juce::jmax (pk, std::abs (v));
@@ -556,15 +530,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         // inactive strips still mix with target gain 0 so the cut ramps out
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
-        mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c],
-                  duck[(size_t) c], pan, 1.0f,
+        mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c], pan, 1.0f,
                   smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]);
     }
 
     {
         // DI blend stays centred (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, diDuck, 0.0f, phase, smDiLg, smDiRg, diLevel);
+        mixStrip (dry, diGain, 0.0f, phase, smDiLg, smDiRg, diLevel);
     }
 
     // --- glue: compress the sum (threshold/ratio scale with the knob) ---
@@ -698,8 +671,7 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
         { "Hysterical", { {"in_gain",8.0f}, {"glue",0.55f},
                           {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
                           {"lofx57_gain",11.2f},{"lofx421_gain",12.0f},{"lofxtwt_gain",3.4f},
-                          {"lowcln1_gain",-4.0f},{"lowcln2_gain",-9.0f},
-                          {"sub_duck",1.0f},{"lowcln1_duck",1.0f} } },
+                          {"lowcln1_gain",-4.0f},{"lowcln2_gain",-9.0f} } },
         { "Subby", { {"glue",0.2f},
                      {"lofx57_mute",1.0f},{"lofx421_mute",1.0f},{"lofxtwt_mute",1.0f},
                      {"sub_gain",2.0f},{"lowcln1_gain",-1.0f},{"lowcln2_gain",-5.0f} } },
@@ -707,17 +679,20 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
                            {"lofx57_fuzz",0.0f},{"lofx421_fuzz",0.0f},{"lofxtwt_fuzz",0.0f},
                            {"lofx57_gain",-6.0f},{"lofx421_gain",-9.0f},{"lofxtwt_gain",-15.0f},
                            {"roomnear_mute",0.0f},{"roomnear_gain",-26.0f} } },
-        { "Dirt Duck", { {"in_gain",4.0f},{"glue",0.4f},
+        // v0.2.0: was "Dirt Duck" — the sidechain duck left the free plugin,
+        // and a preset must not be named for a move it no longer makes. The
+        // lows are tucked by fader instead.
+        { "Dirt Wall", { {"in_gain",4.0f},{"glue",0.4f},
                          {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
-                         {"sub_duck",1.0f},{"lowcln1_duck",1.0f},{"lowcln2_duck",1.0f} } },
+                         {"sub_gain",-3.0f},{"lowcln1_gain",-5.0f},{"lowcln2_gain",-8.0f} } },
         // v0.2.0 presets. The older presets need no HI edits: presets apply on
         // top of the defaults, and the HI strips default muted.
         // The DIST character across the FX strips — tighter and brighter than
-        // Dirt Duck's fuzz, lows ducked out of its way for the same clarity.
+        // Dirt Wall's fuzz, the low bed pulled back so the mids own the drive.
         { "Dist Stack", { {"in_gain",3.0f},{"glue",0.35f},
                           {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
                           {"lofx57_drivetype",1.0f},{"lofx421_drivetype",1.0f},{"lofxtwt_drivetype",1.0f},
-                          {"sub_duck",1.0f},{"lowcln1_duck",1.0f} } },
+                          {"lowcln1_gain",-4.0f},{"lowcln2_gain",-7.0f} } },
         // The HI layers over a clean bed: octave-up crunch and air on top,
         // FX mids pulled back so the top end owns the sparkle.
         { "Crunch Air", { {"glue",0.3f},

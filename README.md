@@ -39,10 +39,7 @@ Every layer is a channel strip with the same controls.
 | S | Solo. |
 | Pan | Placement in the stereo field (shown only in stereo; SUB and DI have none — they stay dead centre). |
 | Ø | Phase (polarity) invert. |
-| SC | Sidechain. Duck this layer when the dirt hits, keyed off the LOW FX. |
 | FUZZ | Engage the dirt. LOW FX layers only. |
-
-**Sidechain ducking:** the LOW FX dirt acts as a sidechain key. Arm SC on any layer, even the SUB, and it ducks out of the way when the dirt comes in, so the grit cuts through without the low end fighting it.
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
 
@@ -57,13 +54,13 @@ Every layer is a channel strip with the same controls.
 
 In ALL view the spectrum draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
 
-**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Duck, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
+**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Crunch Air, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
 
 ## How it works (tech FAQ)
 
 The honest engineering answers, for those who asked.
 
-**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase / duck → stereo sum → GLUE → OUTPUT gain`. The ROOM layers are fed the blended sum of the voicing layers rather than the raw DI, the way a room hears a rig. The DI strip taps the input before INPUT gain, so it stays truly dry.
+**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase → stereo sum → GLUE → OUTPUT gain`. The ROOM layers are fed the blended sum of the voicing layers rather than the raw DI, the way a room hears a rig. The DI strip taps the input before INPUT gain, so it stays truly dry.
 
 **What is each layer, really?** A measured impulse response of a real studio capture chain (instrument, amplification, transducer, and desk), one per frequency role, convolved in real time. The capture chain itself is the proprietary part and stays undisclosed.
 
@@ -89,7 +86,6 @@ The honest engineering answers, for those who asked.
 | IR / convolution | An impulse response is a sonic fingerprint of a real signal chain. Convolution applies that fingerprint to your signal in real time, so it takes on the captured character. |
 | Fuzz | Heavy, saturated distortion — the aggressive layer of the sound. Here it lives on the LOW FX strips only, leaving the foundation clean underneath. |
 | Glue | Gentle compression applied to the summed mix so the parallel layers move together and read as one instrument. |
-| Sidechain duck (SC) | One signal automatically lowering another. Arm SC on a layer and it dips out of the way whenever the LOW FX dirt hits, then comes back. |
 | Phase invert (Ø) | Flips a layer's waveform upside down. If two layers cancel each other and sound thin, flipping one often locks them back in. |
 | Mono fold-down | How the sound survives on a single speaker (phones, club PA subs). The lows here are mono by design, so it does. |
 | A/B | Quick comparison between two states — here, the untouched DI versus the full processed stack. |
