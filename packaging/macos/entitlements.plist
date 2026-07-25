@@ -6,12 +6,22 @@
   disable-library-validation lets a DAW host (which has its own Team ID) load our
   plug-in bundle, and lets the bundle load its embedded JUCE code, under the hardened
   runtime. Without it, hosts signed by a different team refuse to load the plug-in.
-  The Standalone's microphone access is governed by TCC + the NSMicrophoneUsageDescription
-  string set in CMakeLists (MICROPHONE_PERMISSION_*), not by an entitlement here.
+
+  device.audio-input is REQUIRED for the Standalone to capture from an interface
+  under the hardened runtime. Without it macOS disables audio input for the process
+  outright: no TCC permission prompt ever appears and the input callback delivers
+  silence, while output (and the settings panel's TEST tone) keep working. That was
+  the v0.1.6-v0.2.0 Standalone "dead input VU" bug (TalkBass p3, ardgedee) - every
+  notarized build lacked it; the last ad-hoc-signed build (v0.1.5) didn't need it.
+  The NSMicrophoneUsageDescription string set in CMakeLists (MICROPHONE_PERMISSION_*)
+  is still required too: the entitlement enables the capability, TCC + that string
+  governs the user-facing permission prompt. Both must be present.
 -->
 <plist version="1.0">
 <dict>
     <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
     <true/>
 </dict>
 </plist>
