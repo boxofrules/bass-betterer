@@ -51,6 +51,22 @@ static const char* fuzzIrFor (int fx, int& size)
     }
 }
 
+// FX channel (0..2) -> DIST cab IR: the Dual Terror BLEND (v0.2.1, mirroring
+// the premium "DIST 2" recipe exactly — one representative Terror voice per
+// mic, the six curated family captures averaged offline into one impulse;
+// 57 / AT->421 / OX->TWEETER). The TYPE key swaps the drive-path cab between
+// this and the H1 fuzz cab — the clipper params are unchanged by the swap.
+static const char* distIrFor (int fx, int& size)
+{
+    switch (fx)
+    {
+        case 0: size = BinaryData::ir_lofx57_dist_wavSize;  return BinaryData::ir_lofx57_dist_wav;
+        case 1: size = BinaryData::ir_lofx421_dist_wavSize; return BinaryData::ir_lofx421_dist_wav;
+        case 2: size = BinaryData::ir_lofxtwt_dist_wavSize; return BinaryData::ir_lofxtwt_dist_wav;
+        default: size = 0; return nullptr;
+    }
+}
+
 BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     : AudioProcessor (BusesProperties()
         .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
@@ -189,6 +205,13 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
                 juce::dsp::Convolution::Stereo::no, juce::dsp::Convolution::Trim::no, 0,
                 juce::dsp::Convolution::Normalise::yes);
         fuzzConvs[(size_t) fx].prepare (monoSpec);
+
+        size = 0;
+        if (auto* data = distIrFor (fx, size))
+            distConvs[(size_t) fx].loadImpulseResponse (data, (size_t) size,
+                juce::dsp::Convolution::Stereo::no, juce::dsp::Convolution::Trim::no, 0,
+                juce::dsp::Convolution::Normalise::yes);
+        distConvs[(size_t) fx].prepare (monoSpec);
     }
 
     // Drive chains (v0.2.0: the drive:: tables replace the old inline
@@ -237,7 +260,9 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     // all convs above were just re-prepared, so no stale state to flush
     for (int fx = 0; fx < 3; ++fx)
-        prevFuzzOn[(size_t) fx] = pFuzz[(size_t) (fx + 3)]->load() > 0.5f;
+        prevPath[(size_t) fx] = pFuzz[(size_t) (fx + 3)]->load() <= 0.5f ? DrivePath::clean
+                              : pDriveType[(size_t) (fx + 3)]->load() > 0.5f ? DrivePath::distCab
+                                                                             : DrivePath::fuzzCab;
     roomIdle.fill (false);
 }
 
@@ -340,25 +365,34 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
         const int  slot   = driveSlotFor (c);
         const bool fuzzOn = def.isFX && pFuzz[(size_t) c] != nullptr && pFuzz[(size_t) c]->load() > 0.5f;
+        const bool dist   = fuzzOn && pDriveType[(size_t) c] != nullptr && pDriveType[(size_t) c]->load() > 0.5f;
         if (fuzzOn)
         {
             // v0.2.0: select this strip's drive character (FUZZ or DIST) —
             // cheap when unchanged, glides (no reset) when switched live.
             // Locks carry the character's measured loudness adjust so a
-            // character switch holds level (bor-bench cal).
-            const bool dist = pDriveType[(size_t) c] != nullptr && pDriveType[(size_t) c]->load() > 0.5f;
+            // character switch holds level (bor-bench cal). v0.2.1: DIST also
+            // swaps the drive-path cab to the Dual Terror blend (below) —
+            // the cab IS the character difference, same recipe as premium.
             auto lk = drive::LOCKS[(size_t) slot];
             lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
             fuzz[(size_t) slot].setLocks (lk);
             fuzz[(size_t) slot].setCharacter (dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot]);
         }
-        if (def.isFX && fuzzOn != prevFuzzOn[(size_t) slot])
+        if (def.isFX)
         {
-            // the conv we're switching to hasn't been fed since the last toggle —
-            // flush its FIFOs or it replays a stale tail
-            if (fuzzOn) fuzzConvs[(size_t) slot].reset();
-            else        convs[(size_t) c].reset();
-            prevFuzzOn[(size_t) slot] = fuzzOn;
+            // the conv we're switching to hasn't been fed since the last
+            // path change (drive toggle or TYPE key) — flush its FIFOs or it
+            // replays a stale tail
+            const auto path = ! fuzzOn ? DrivePath::clean
+                            : dist     ? DrivePath::distCab : DrivePath::fuzzCab;
+            if (path != prevPath[(size_t) slot])
+            {
+                if      (path == DrivePath::clean)   convs[(size_t) c].reset();
+                else if (path == DrivePath::fuzzCab) fuzzConvs[(size_t) slot].reset();
+                else                                 distConvs[(size_t) slot].reset();
+                prevPath[(size_t) slot] = path;
+            }
         }
         // only this block's n samples — wrapping all of `work` (sized to the host max)
         // feeds stale samples back through the convolution when the host renders
@@ -368,7 +402,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         if (fuzzOn)
         {
             fuzz[(size_t) slot].processPreCab (w, n);
-            fuzzConvs[(size_t) slot].process (ctx);
+            (dist ? distConvs[(size_t) slot] : fuzzConvs[(size_t) slot]).process (ctx);
             fuzz[(size_t) slot].processPostCab (w, n);
         }
         else
