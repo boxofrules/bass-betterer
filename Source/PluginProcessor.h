@@ -4,34 +4,28 @@
 #include <juce_dsp/juce_dsp.h>
 #include <array>
 #include "FuzzChain.h"
-#include "OctaveShifter.h"
 
 // Bass Better-er — drop on a bass DI channel; splits it into the BoR multi-mic
 // voicings (each a measured H1 cab IR), mixes them with per-channel level/mute/solo/
 // pan, optional fuzz on the LO FX channels, glue compression on the sum, and I/O trim.
-class BoRBassEnhancerProcessor : public juce::AudioProcessor,
-                                 private juce::AudioProcessorValueTreeState::Listener,
-                                 private juce::AsyncUpdater
+class BoRBassEnhancerProcessor : public juce::AudioProcessor
 {
 public:
-    // v0.2.0: 10 strips — the original 8 plus the two HI layers (HI CRUNCH /
-    // HI AIR): DI -> one shared octave-up shifter -> per-strip drive -> HI
-    // cab IR. Both ship MUTED, so a fresh instance (and every old session)
-    // renders byte-identically to v0.1.x and stays zero-latency (bor-bench
-    // fnv holds); latency is reported only while a HI strip is unmuted.
-    static constexpr int NUM_CH   = 10;
-    static constexpr int FIRST_HI = 8;
-    static constexpr int NUM_HI   = 2;
-    struct ChanDef { const char* id; const char* name; bool isFX; bool isRoom; bool isHI; float defGainDb; bool defMute; };
+    // v0.2.1: back to the 8 v0.1.x strips. The v0.2.0 HI CRUNCH / HI AIR
+    // octave layers moved to the premium plugin only: the granular shifter's
+    // inherent 16-64 ms lag + un-ear-locked JB-2 drive placeholder made them
+    // unshippable here (they were also the only latency reporter — the free
+    // plugin is now unconditionally zero-latency again). v0.2.0 sessions
+    // load fine; their hioct_*/hih_* nodes are simply ignored.
+    static constexpr int NUM_CH = 8;
+    struct ChanDef { const char* id; const char* name; bool isFX; bool isRoom; float defGainDb; bool defMute; };
     static const std::array<ChanDef, NUM_CH> channels;
 
-    // channel -> drive chain slot (drive:: table order: LO FX 57/421/TWT,
-    // HI CRUNCH, HI AIR; -1 = not drive-capable)
+    // channel -> drive chain slot (drive:: table order: LO FX 57/421/TWT;
+    // -1 = not drive-capable)
     static constexpr int driveSlotFor (int c) noexcept
     {
-        if (c >= 3 && c <= 5) return c - 3;
-        if (c >= FIRST_HI && c < FIRST_HI + NUM_HI) return 3 + (c - FIRST_HI);
-        return -1;
+        return (c >= 3 && c <= 5) ? c - 3 : -1;
     }
 
     BoRBassEnhancerProcessor();
@@ -104,25 +98,10 @@ private:
     double sr = 48000.0;
     int numOut = 2;
 
-    std::array<juce::dsp::Convolution, NUM_CH> convs;      // clean/room/HI voicing IR per channel
+    std::array<juce::dsp::Convolution, NUM_CH> convs;      // clean/room voicing IR per channel
     std::array<juce::dsp::Convolution, 3> fuzzConvs;       // H1 cab IR for the LO FX drive mode
-    std::array<FuzzChain, 5> fuzz;  // drive chains (driveSlotFor: LO FX x3 + HI x2)
+    std::array<FuzzChain, 3> fuzz;  // drive chains (driveSlotFor: LO FX x3)
     juce::dsp::Compressor<float> glueComp;
-
-    // v0.2.0 HI layers: ONE shared octave-up shifter feeds both HI strips
-    // (runs only while an audible HI strip consumes it; reset on re-entry so
-    // it never replays a stale ring). hiShift = its per-block output.
-    OctaveShifter shifter;
-    juce::HeapBlock<float> hiShift;
-    bool shifterIdle = true;
-    std::array<bool, NUM_HI> hiIdle {};
-
-    // latency policy: report the shifter latency to the host only while a HI
-    // strip is unmuted (mute flips arrive via the APVTS listener; the actual
-    // setLatencySamples happens on the message thread via the AsyncUpdater)
-    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
-    void handleAsyncUpdate() override { refreshLatency(); }
-    void refreshLatency();
 
     // cached parameter pointers (lock-free reads on the audio thread)
     std::array<std::atomic<float>*, NUM_CH> pGain{}, pMute{}, pSolo{}, pPan{}, pFuzz{}, pPhase{}, pDuck{};

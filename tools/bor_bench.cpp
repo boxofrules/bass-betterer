@@ -116,15 +116,13 @@ static int runCal()
 {
     const double sr = 48000.0; const int block = 512;
     const auto sig = synthBassDI (sr, 8.0);
-    struct StripDef { const char* id; bool hi; };
-    const StripDef strips[] = { { "lofx57", false }, { "lofx421", false }, { "lofxtwt", false },
-                                { "hioct", true }, { "hih", true } };
+    struct StripDef { const char* id; };
+    const StripDef strips[] = { { "lofx57" }, { "lofx421" }, { "lofxtwt" } };
 
     // v0.2.0: three renders per drive strip — clean, FUZZ, DIST — soloed at
     // gain 0. The baked levelDb trims equalise FUZZ to clean; the printed
     // DIST adjust is the extra per-character trim (drive::DIST_TRIM_DB) that
-    // brings DIST level with clean through the SAME locks. HI strips: "clean"
-    // is the shifted signal through the cab IR with drive off.
+    // brings DIST level with clean through the SAME locks.
     std::printf ("drive vs clean loudness per strip (K-weighted, soloed, gain 0 dB)\n");
     for (const auto& sdef : strips)
     {
@@ -136,7 +134,6 @@ static int runCal()
             setParam (*p, "analyzer", 0.0f);
             setParam (*p, id + "_solo", 1.0f);
             setParam (*p, id + "_gain", 0.0f);
-            if (sdef.hi) setParam (*p, id + "_mute", 0.0f);
             setParam (*p, id + "_fuzz", mode > 0 ? 1.0f : 0.0f);
             setParam (*p, id + "_drivetype", mode == 2 ? 1.0f : 0.0f);
             lDb[mode] = renderLoudness (*p, sig, sr, block, 1.0);
@@ -239,8 +236,6 @@ static int runFnv()
         // v0.2.0 additions (new fingerprints, recorded not inherited)
         { "DIST on x3                 ", true,  true,  nullptr,   false },
         { "DIST on, solo lofx57       ", true,  true,  "lofx57",  false },
-        { "HI CRUNCH solo (unmuted)   ", false, false, "hioct",   true  },
-        { "HI AIR solo (unmuted)      ", false, false, "hih",     true  },
     };
     std::printf ("render fingerprints (FNV-1a, 6s synth DI, 48k/512) + K-weighted loudness\n");
     for (const auto& c : cfgs)
