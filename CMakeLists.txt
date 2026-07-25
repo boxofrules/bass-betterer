@@ -82,6 +82,9 @@ juce_add_binary_data(BoREnhancerIR SOURCES
     ir/ir_lofx57_fuzz.wav
     ir/ir_lofx421_fuzz.wav
     ir/ir_lofxtwt_fuzz.wav
+    ir/ir_lofx57_dist.wav
+    ir/ir_lofx421_dist.wav
+    ir/ir_lofxtwt_dist.wav
     ir/ir_roomnear.wav
     ir/ir_roomfar.wav
     ir/drive_fits.bin)

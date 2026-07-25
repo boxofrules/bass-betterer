@@ -71,10 +71,12 @@ inline constexpr std::array<Params, NUM_DRIVE_STRIPS> FUZZ { {
 } };
 
 // Per-character loudness adjusts ON TOP of the strip locks' levelDb
-// (measured with `bor-bench cal`, v0.2.0). FUZZ is 0.0 BY CONTRACT —
-// byte-identity with every earlier release.
+// (measured with `bor-bench cal`). FUZZ is 0.0 BY CONTRACT — byte-identity
+// with every earlier release. The DIST trims were re-measured for v0.2.1
+// when the DIST drive path gained the Dual Terror blend cab (v0.2.0 values,
+// measured through the H1 fuzz cab: 4.32 / -0.33 / -5.62).
 inline constexpr std::array<float, NUM_DRIVE_STRIPS> FUZZ_TRIM_DB { { 0.0f, 0.0f, 0.0f } };
-inline constexpr std::array<float, NUM_DRIVE_STRIPS> DIST_TRIM_DB { { 4.32f, -0.33f, -5.62f } };
+inline constexpr std::array<float, NUM_DRIVE_STRIPS> DIST_TRIM_DB { { 5.64f, 1.33f, -5.79f } };
 
 // DIST — the fitted distortion character. Values arrive at runtime from the
 // encrypted asset pack (ir/drive_fits.bin, embedded as BinaryData like the

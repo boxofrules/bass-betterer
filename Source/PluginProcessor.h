@@ -99,7 +99,8 @@ private:
     int numOut = 2;
 
     std::array<juce::dsp::Convolution, NUM_CH> convs;      // clean/room voicing IR per channel
-    std::array<juce::dsp::Convolution, 3> fuzzConvs;       // H1 cab IR for the LO FX drive mode
+    std::array<juce::dsp::Convolution, 3> fuzzConvs;       // H1 cab IR for the FUZZ drive path
+    std::array<juce::dsp::Convolution, 3> distConvs;       // Dual Terror BLEND cab for the DIST drive path
     std::array<FuzzChain, 3> fuzz;  // drive chains (driveSlotFor: LO FX x3)
     juce::dsp::Compressor<float> glueComp;
 
@@ -143,10 +144,12 @@ private:
     float smDiLg = 0.0f, smDiRg = 0.0f, smInG = 1.0f, smOutG = 1.0f, smMakeup = 1.0f;
     bool  smSnap = true;
 
-    // FX clean/fuzz convs share one strip: the idle one holds stale FIFO state,
-    // so it is reset when the FUZZ toggle switches back to it (LO FX only —
-    // the HI strips run ONE IR for both clean and driven paths)
-    std::array<bool, 3> prevFuzzOn {};
+    // An FX strip's three convs (clean voicing / FUZZ H1 cab / DIST Terror
+    // blend) share one signal path: the idle ones hold stale FIFO state, so
+    // the conv being switched TO is reset on any drive-path change (drive
+    // toggle OR the TYPE key while engaged).
+    enum class DrivePath : int { clean = 0, fuzzCab, distCab };
+    std::array<DrivePath, 3> prevPath { DrivePath::clean, DrivePath::clean, DrivePath::clean };
     // rooms skip their (heaviest) convolution while fully silent; reset on re-entry
     std::array<bool, 2> roomIdle {};
 
