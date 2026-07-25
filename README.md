@@ -13,13 +13,12 @@ A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
 
-## What's new in 0.2.0
+## What's new in 0.2.x
 
-- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a tighter, brighter distortion voice. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
-- **Two new HI layers: HI CRUNCH and HI AIR** — an octave-up shifter feeding two driven top layers, for sparkle and bite above the stack. They ship muted; unmute to bring them in. While one is unmuted the plugin reports a small lookahead latency to your DAW (the shifter needs it); muted, everything stays zero-latency as before.
-- **New presets** — Dist Stack and Crunch Air join the bank; Dirt Duck is now Dirt Wall.
+- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, the Dual Terror drive voice: the same drive through the blended Terror rig captures. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
+- **New presets** — Dist Stack joins the bank; Dirt Duck is now Dirt Wall.
 - **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
-- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, HI layers muted, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
 - **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
 - **AAX (Pro Tools) builds, now signed** — the AAX target builds and is signed with the PACE tools, and loads in retail Pro Tools. Not in the Release downloads yet: the shipped build needs to cover Apple silicon and Intel both, which lands with a future release. See [Building the AAX target](#building-the-aax-target).
 
@@ -33,7 +32,6 @@ A real bass record is never one signal. It is a foundation you feel, a body you 
 | SUB | The foundation. Always on, dead centre. |
 | LOW CLEAN | Body and warmth. |
 | LOW FX | Grit and aggression, with an engageable drive (FUZZ or DIST). |
-| HI | Octave-up crunch and air on top of the stack (HI CRUNCH / HI AIR). Muted by default. |
 | ROOM | Air and space around the whole thing. |
 
 Every layer is a channel strip with the same controls.
@@ -61,7 +59,7 @@ Every layer is a channel strip with the same controls.
 
 In ALL view the spectrum draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
 
-**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Crunch Air, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
+**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
 
 ## How it works (tech FAQ)
 
