@@ -667,7 +667,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         presetBox.onChange = [this] { presetChosen(); };
 
         // DI blend strip first (no pan — A/B audition sits there instead), then
-        // the 10 voicing layers in DISPLAY order — rooms LAST (James, 22 Jul:
+        // the 8 voicing layers in DISPLAY order — rooms LAST (James, 22 Jul:
         // "move the rooms to the channels at the end"), a pure view-level
         // reorder: channel indices, params and sessions are untouched. SUB
         // has no pan either: the lows stay dead centre.
@@ -720,7 +720,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
 
 
-        setSize (1432, 784);   // v0.2.0: 11 columns (DI + 10 strips)
+        setSize (1180, 784);   // 9 columns (DI + 8 strips)
         startTimerHz (30);
     }
 
@@ -1055,7 +1055,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
     // strip column k+1 shows channel displayOrder[k] — rooms last (view-only)
     static constexpr std::array<int, BoRBassEnhancerProcessor::NUM_CH> displayOrder
-        { 0, 1, 2, 3, 4, 5, 8, 9, 6, 7 };
+        { 0, 1, 2, 3, 4, 5, 6, 7 };
     std::array<float, BoRBassEnhancerProcessor::NUM_CH + 1> meterLevel {};
     int hdrRuleY = 0, botRuleY = 0, footRuleY = 0;
 };
@@ -1080,7 +1080,7 @@ BoRBassEnhancerEditor::BoRBassEnhancerEditor (BoRBassEnhancerProcessor& p)
     setResizable (true, true);
     setResizeLimits (649, 431, 1534, 1019);              // ~0.55x .. ~1.3x of the design
     if (auto* c = getConstrainer()) c->setFixedAspectRatio (1180.0 / 784.0);
-    setSize (1217, 666);                                 // ~0.85x — comfortable default
+    setSize (1003, 666);                                 // ~0.85x — comfortable default
 }
 
 BoRBassEnhancerEditor::~BoRBassEnhancerEditor() { setLookAndFeel (nullptr); }
