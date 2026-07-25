@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22)
 # slice of a universal binary implies 11.0 by itself; this governs the x86_64 one).
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
 
-project(BoRBassEnhancer VERSION 0.2.0)
+project(BoRBassEnhancer VERSION 0.2.1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
