@@ -7,11 +7,29 @@
 
 One bass DI, rebuilt into a whole session.
 
-A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
+A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows) — plus **Bass Better-Router**, the same engine as a multi-output software instrument (see below). Drop it on a bass DI and it splits the signal into parallel layers. Each layer owns its slice of the spectrum and is voiced from a real Box of Rules studio capture, then they blend back into one apparent instrument. Deeper, wider, and more alive than the DI that went in.
 
 ![Bass Better-er](assets/bass-betterer.png)
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
+
+## What's new in 1.0
+
+Out of beta. Two headline features and a second plugin:
+
+- **GUITAR mode** — the new GUITAR key (bottom bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone.
+- **Bass Better-Router** — a second plugin, installed alongside: the same engine as a **multi-output software instrument** (like Logic's Ultrabeat). Put it on an instrument track, feed it your DI via the side-chain, and give every mixer strip its own aux/track for per-mic processing, sends, and printing stems. See [Bass Better-Router](#bass-better-router-multi-output) below.
+- All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ remains byte-for-byte identical to every release before it.
+
+## Bass Better-Router (multi-output)
+
+The Router is an *instrument* build of the engine: it takes no insert input, listens on its **side-chain / key input**, and exposes the main **Mix** plus 9 stereo stem outputs — one per strip (SUB, the two LOW CLEANs, the three LOW FX mics, both ROOMs) and the DI blend. Stems follow each strip's fader/pan/phase/mute/solo and are tapped **before** the glue compressor and OUTPUT gain (those shape only the Mix bus).
+
+**Logic Pro:** create a Software Instrument track → instrument slot → *AU Instruments → Box of Rules → Bass Better-Router* → choose the **Multi Output** configuration. In the plugin header, set **Side Chain** to the audio track or bus carrying your DI. In the Mixer, click the **+** button on the instrument channel strip to spawn aux strips — each one carries one stem, in strip order. The plain "Stereo" configuration works too (Mix only).
+
+**Pro Tools:** insert Bass Better-Router on a (stereo) Instrument track, set the plugin's **key input** to the bus carrying your DI (key inputs are mono — the engine is mono-in anyway), then create Aux tracks whose inputs are the plugin's output stems.
+
+Notes: MIDI notes are accepted (hosts require that of an instrument) but ignored — audio comes only from the side-chain. Sessions and presets are fully interchangeable with the effect plugin. In other VST3 hosts (Reaper, Bitwig, Live) routing audio into an instrument works too, but Logic and Pro Tools are the supported paths.
 
 ## What's new in 0.2.x
 
@@ -105,6 +123,8 @@ Grab the [latest Release](https://github.com/boxofrules/bass-betterer/releases/l
 | --- | --- |
 | AU | `/Library/Audio/Plug-Ins/Components/Bass Better-er.component` |
 | VST3 | `/Library/Audio/Plug-Ins/VST3/Bass Better-er.vst3` |
+| AU (Router) | `/Library/Audio/Plug-Ins/Components/Bass Better-Router.component` |
+| VST3 (Router) | `/Library/Audio/Plug-Ins/VST3/Bass Better-Router.vst3` |
 
 The macOS build is Developer ID signed and notarized by Apple, so the installer opens and runs without any Gatekeeper prompt.
 
@@ -113,6 +133,7 @@ The macOS build is Developer ID signed and notarized by Apple, so the installer 
 | Format | Installed to |
 | --- | --- |
 | VST3 | `C:\Program Files\Common Files\VST3\Bass Better-er.vst3` |
+| VST3 (Router) | `C:\Program Files\Common Files\VST3\Bass Better-Router.vst3` |
 
 **Linux:** grab `Bass-Better-er-Linux-VST3.zip`, unzip it, and copy the `Bass Better-er.vst3` folder into one of these (Linux is VST3 only, no AU; native x86_64, for hosts like Ubuntu Studio / Reaper / Ardour):
 
