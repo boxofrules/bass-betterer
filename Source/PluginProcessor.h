@@ -44,8 +44,17 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
+#ifdef BOR_INSTRUMENT
+    // Bass Better-Router: the same engine as a software instrument. The name
+    // comes from the target's PRODUCT_NAME; MIDI is accepted because hosts
+    // refuse to put a MIDI-less plugin on an instrument track — the notes
+    // themselves are ignored (audio arrives via the side-chain/key input).
+    const juce::String getName() const override { return JucePlugin_Name; }
+    bool acceptsMidi() const override { return true; }
+#else
     const juce::String getName() const override { return "Bass Better-er"; }
     bool acceptsMidi() const override { return false; }
+#endif
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     // must cover the room IRs' 24000-tap reverb tail (0.54 s at 44.1 kHz) or
@@ -99,6 +108,9 @@ public:
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+#ifdef BOR_INSTRUMENT
+    static BusesProperties routerBuses();   // BusesProperties is protected — must live in-class
+#endif
 
     // GUITAR mode latency reporting: the shifter is the only latency source,
     // reported only while engaged. setLatencySamples must not be called on the

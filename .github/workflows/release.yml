@@ -149,6 +149,7 @@ jobs:
           $art = "build/BoRBassEnhancer_artefacts/Release"
           New-Item -ItemType Directory -Force pkgsrc | Out-Null
           Copy-Item -Recurse "$art/VST3/Bass Better-er.vst3" pkgsrc/
+          Copy-Item -Recurse "build/BoRBassRouter_artefacts/Release/VST3/Bass Better-Router.vst3" pkgsrc/
           $ver = ("${{ github.event.inputs.tag || github.ref_name }}") -replace '^v',''
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
@@ -172,6 +173,7 @@ jobs:
           ART="build/BoRBassEnhancer_artefacts/Release"
           NAME="Bass Better-er"
           ( cd "$ART/VST3" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-VST3.zip" "$NAME.vst3" )
+          ( cd "build/BoRBassRouter_artefacts/Release/VST3" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-VST3.zip" "Bass Better-Router.vst3" )
           ( cd "$ART/Standalone" && zip -ry "$GITHUB_WORKSPACE/Bass-Better-er-Linux-Standalone.zip" "$NAME" )
           zip -j "Bass-Better-er-Linux-VST3.zip" packaging/DISCLAIMER.txt
           zip -j "Bass-Better-er-Linux-Standalone.zip" packaging/DISCLAIMER.txt

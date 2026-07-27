@@ -75,3 +75,5 @@ jobs:
           chmod +x pluginval
           xvfb-run -a ./pluginval --strictness-level 5 --timeout-ms 120000 \
             --validate "build/BoRBassEnhancer_artefacts/Release/VST3/Bass Better-er.vst3"
+          xvfb-run -a ./pluginval --strictness-level 5 --timeout-ms 120000 \
+            --validate "build/BoRBassRouter_artefacts/Release/VST3/Bass Better-Router.vst3"

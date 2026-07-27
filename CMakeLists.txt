@@ -110,6 +110,55 @@ target_link_libraries(BoRBassEnhancer PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
+# ---- Bass Better-Router: the multi-output sidechain-instrument variant --------
+# Same engine, compiled as a software INSTRUMENT (AU aumu / VST3 Instrument /
+# AAX SWGenerators): put it on an instrument track, feed the DI via the
+# side-chain (Logic) or key input (Pro Tools), and route each mixer strip to
+# its own aux via the 9 stem output buses — the Ultrabeat workflow, for a bass
+# rig. All divergence from the effect is behind BOR_INSTRUMENT in Source/.
+# No Standalone: it would duplicate the effect's standalone exactly.
+option(BOR_BUILD_INSTRUMENT "Build the Bass Better-Router instrument variant" ON)
+if(BOR_BUILD_INSTRUMENT)
+    set(BOR_ROUTER_FORMATS AU VST3)
+    if(BOR_AAX_SDK_PATH AND EXISTS "${BOR_AAX_SDK_PATH}")
+        list(APPEND BOR_ROUTER_FORMATS AAX)
+    endif()
+    juce_add_plugin(BoRBassRouter
+        COMPANY_NAME "Box of Rules"
+        COMPANY_COPYRIGHT "(c) 2026 Box of Rules. Source-available, proprietary — see the repo LICENSE."
+        BUNDLE_ID com.boxofrules.bassbetterrouter
+        PLUGIN_MANUFACTURER_CODE BxRl
+        PLUGIN_CODE BbRt
+        FORMATS ${BOR_ROUTER_FORMATS}
+        PRODUCT_NAME "Bass Better-Router"
+        IS_SYNTH TRUE
+        NEEDS_MIDI_INPUT TRUE          # hosts require MIDI-in on an instrument; notes are ignored
+        NEEDS_MIDI_OUTPUT FALSE
+        AU_MAIN_TYPE kAudioUnitType_MusicDevice
+        AAX_CATEGORY AAX_ePlugInCategory_SWGenerators
+        VST3_CATEGORIES Instrument External
+        ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-1024.png"
+        ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-256.png"
+        COPY_PLUGIN_AFTER_BUILD TRUE)
+    juce_generate_juce_header(BoRBassRouter)
+    target_sources(BoRBassRouter PRIVATE
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp)
+    target_compile_definitions(BoRBassRouter PUBLIC
+        BOR_INSTRUMENT=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_link_libraries(BoRBassRouter PRIVATE
+        BoREnhancerIR
+        juce::juce_audio_utils
+        juce::juce_dsp
+        PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endif()
+
 # Offline calibration / benchmark harness (developer tool, never shipped).
 #   cmake -B build -DBOR_BUILD_TOOLS=ON && cmake --build build --target BoRBench
 #   ./build/BoRBench_artefacts/bor-bench cal|bench

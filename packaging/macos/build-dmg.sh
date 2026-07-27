@@ -27,9 +27,20 @@ OUT="${2:-Bass-Better-er-macOS.dmg}"
 VER="${3:-0.1.0}"
 NAME="Bass Better-er"
 ID="com.boxofrules.bassbetterer"
+# Bass Better-Router (the multi-out sidechain instrument) ships in the same
+# pkg/dmg when its artefacts exist next to the effect's — no new asset names.
+RART="${4:-$(dirname "$(dirname "$ART")")/BoRBassRouter_artefacts/Release}"
+RNAME="Bass Better-Router"
 
 [[ -d "$ART/AU/$NAME.component" ]] || { echo "ERROR: missing $ART/AU/$NAME.component (build first)" >&2; exit 1; }
 [[ -d "$ART/VST3/$NAME.vst3"   ]] || { echo "ERROR: missing $ART/VST3/$NAME.vst3 (build first)"   >&2; exit 1; }
+HAVE_ROUTER=0
+if [[ -d "$RART/AU/$RNAME.component" && -d "$RART/VST3/$RNAME.vst3" ]]; then
+  HAVE_ROUTER=1
+  echo "Including $RNAME (found at $RART)"
+else
+  echo "NOTE: $RNAME artefacts not found at $RART — packaging the effect only"
+fi
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 disclaimer="$here/../DISCLAIMER.txt"
@@ -81,10 +92,18 @@ root="$work/root"
 mkdir -p "$root/Library/Audio/Plug-Ins/Components" "$root/Library/Audio/Plug-Ins/VST3"
 cp -R "$ART/AU/$NAME.component" "$root/Library/Audio/Plug-Ins/Components/"
 cp -R "$ART/VST3/$NAME.vst3"    "$root/Library/Audio/Plug-Ins/VST3/"
+if [[ "$HAVE_ROUTER" == 1 ]]; then
+  cp -R "$RART/AU/$RNAME.component" "$root/Library/Audio/Plug-Ins/Components/"
+  cp -R "$RART/VST3/$RNAME.vst3"    "$root/Library/Audio/Plug-Ins/VST3/"
+fi
 
 # sign the bundles so they load on the user's machine after install
 codesign "${SIGN_ARGS[@]}" "$root/Library/Audio/Plug-Ins/Components/$NAME.component"
 codesign "${SIGN_ARGS[@]}" "$root/Library/Audio/Plug-Ins/VST3/$NAME.vst3"
+if [[ "$HAVE_ROUTER" == 1 ]]; then
+  codesign "${SIGN_ARGS[@]}" "$root/Library/Audio/Plug-Ins/Components/$RNAME.component"
+  codesign "${SIGN_ARGS[@]}" "$root/Library/Audio/Plug-Ins/VST3/$RNAME.vst3"
+fi
 
 # component package -> distribution-wrapped installer (nicer UI + title)
 pkgbuild --root "$root" --install-location "/" --identifier "$ID" --version "$VER" "$work/component.pkg"

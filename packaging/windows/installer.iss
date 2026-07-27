@@ -32,6 +32,11 @@ LicenseFile=packaging\DISCLAIMER.txt
 [Files]
 Source: "pkgsrc\Bass Better-er.vst3\*"; DestDir: "{commoncf}\VST3\Bass Better-er.vst3"; \
   Flags: recursesubdirs createallsubdirs ignoreversion
+; Bass Better-Router — the multi-out sidechain-instrument variant, staged by the
+; workflow alongside the effect. skipifsourcedoesntexist keeps older/local
+; builds without the Router working.
+Source: "pkgsrc\Bass Better-Router.vst3\*"; DestDir: "{commoncf}\VST3\Bass Better-Router.vst3"; \
+  Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
 
 [Run]
 ; nothing to run — the host rescans VST3 on next launch

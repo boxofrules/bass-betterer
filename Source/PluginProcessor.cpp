@@ -67,10 +67,37 @@ static const char* distIrFor (int fx, int& size)
     }
 }
 
+#ifdef BOR_INSTRUMENT
+// Bass Better-Router bus map. Inputs: bus 0 "DI In" (stereo — Logic feeds an
+// instrument's Side Chain to an input element; VST3 hosts route audio here)
+// and bus 1 "Key In" (mono — JUCE's AAX wrapper only recognises a sidechain
+// as input bus 1, mono). The input collapse sums the per-bus averages, so it
+// does not matter which one the host feeds and a silent unconnected bus
+// cannot halve the level. Outputs: bus 0 "Mix" (exactly the effect's output,
+// glue and all) + one stereo stem per strip + the DI stem, all
+// default-disabled so a plain stereo instantiation (Logic "Stereo", the AAX
+// no-stem fallback) works unchanged. Stems are post-fader/pan/phase/mute/
+// solo and PRE-glue/pre-output-gain.
+juce::AudioProcessor::BusesProperties BoRBassEnhancerProcessor::routerBuses()
+{
+    auto bp = BusesProperties()
+        .withInput  ("DI In",  juce::AudioChannelSet::stereo(), true)
+        .withInput  ("Key In", juce::AudioChannelSet::mono(),   true)
+        .withOutput ("Mix",    juce::AudioChannelSet::stereo(), true);
+    for (const auto& ch : channels)
+        bp = bp.withOutput (ch.name, juce::AudioChannelSet::stereo(), false);
+    return bp.withOutput ("DI", juce::AudioChannelSet::stereo(), false);
+}
+#endif
+
 BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
+#ifdef BOR_INSTRUMENT
+    : AudioProcessor (routerBuses()),
+#else
     : AudioProcessor (BusesProperties()
         .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+#endif
       apvts (*this, nullptr, "PARAMS", createLayout())
 {
     auto P = [this](const juce::String& id){ return apvts.getRawParameterValue(id); };
@@ -201,7 +228,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
 void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
+#ifdef BOR_INSTRUMENT
+    numOut = getMainBusNumOutputChannels();   // the Mix bus; stems go via getBusBuffer
+#else
     numOut = getTotalNumOutputChannels();
+#endif
 
     juce::dsp::ProcessSpec monoSpec { sampleRate, (juce::uint32) samplesPerBlock, 1 };
 
@@ -328,6 +359,29 @@ int BoRBassEnhancerProcessor::readAnalyzer (int which, float* dest, int maxSampl
 
 bool BoRBassEnhancerProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+#ifdef BOR_INSTRUMENT
+    // Router: main out mono/stereo; DI In mono/stereo/off; Key In mono/off
+    // (the AAX sidechain contract); every stem stereo/off. No preferred-
+    // channel shortcuts — JUCE's dynamic probing is what surfaces the AU
+    // multi-output configs Logic offers.
+    const auto mainOut = layouts.getMainOutputChannelSet();
+    if (mainOut != juce::AudioChannelSet::mono() && mainOut != juce::AudioChannelSet::stereo())
+        return false;
+    const auto in0 = layouts.getChannelSet (true, 0);
+    if (in0 != juce::AudioChannelSet::mono() && in0 != juce::AudioChannelSet::stereo()
+        && in0 != juce::AudioChannelSet::disabled())
+        return false;
+    const auto in1 = layouts.getChannelSet (true, 1);
+    if (in1 != juce::AudioChannelSet::mono() && in1 != juce::AudioChannelSet::disabled())
+        return false;
+    for (int b = 1; b < layouts.outputBuses.size(); ++b)
+    {
+        const auto s = layouts.getChannelSet (false, b);
+        if (s != juce::AudioChannelSet::stereo() && s != juce::AudioChannelSet::disabled())
+            return false;
+    }
+    return true;
+#else
     const auto out = layouts.getMainOutputChannelSet();
     const auto in  = layouts.getMainInputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
@@ -335,6 +389,7 @@ bool BoRBassEnhancerProcessor::isBusesLayoutSupported (const BusesLayout& layout
     if (in != juce::AudioChannelSet::mono() && in != juce::AudioChannelSet::stereo())
         return false;
     return true;
+#endif
 }
 
 void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -342,7 +397,15 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     juce::ScopedNoDenormals noDenormals;
     const int nIn = getTotalNumInputChannels();
     const int n   = buffer.getNumSamples();
+#ifdef BOR_INSTRUMENT
+    // Router: numOut is the MIX bus width. Everything downstream that writes
+    // buffer channels 0/1 (mix, A/B, analyzer tap) then targets exactly the
+    // main bus, and the legacy channels>=2 clear can never zero a stem bus.
+    numOut = getMainBusNumOutputChannels();
+    juce::ignoreUnused (nIn);
+#else
     numOut = getTotalNumOutputChannels();
+#endif
     juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer (loadMeasurer, n);
     lastBlock.store (n, std::memory_order_relaxed);
 
@@ -362,6 +425,42 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smSnap) smInG = inG;
     auto* mono = monoIn.getWritePointer (0);
     auto* dry  = dryIn.getWritePointer (0);
+
+    // Collapse the host input to the engine's mono feed. Effect: average all
+    // input channels (unchanged maths — the store-then-multiply split below is
+    // float-identical to the old fused loop; the fnv fingerprints are the
+    // proof). Router: sum the PER-BUS averages across the enabled input buses
+    // (DI In + Key In) — agnostic to which element the host feeds, and a
+    // silent unconnected bus cannot halve the level. ROUTER ORDERING NOTE:
+    // the aux stem outputs alias these input channels in the shared host
+    // buffer, so this copy must complete before any stem write — stems are
+    // written only in PASS 2, keep it that way.
+    auto sumInput = [&] (float* dest)
+    {
+#ifdef BOR_INSTRUMENT
+        juce::FloatVectorOperations::clear (dest, n);
+        for (int b = 0; b < getBusCount (true); ++b)
+        {
+            auto ib = getBusBuffer (buffer, true, b);
+            const int bc = ib.getNumChannels();
+            if (bc <= 0) continue;
+            const float inv = 1.0f / (float) bc;
+            for (int ch = 0; ch < bc; ++ch)
+            {
+                const float* src = ib.getReadPointer (ch);
+                for (int s = 0; s < n; ++s) dest[s] += src[s] * inv;
+            }
+        }
+#else
+        for (int s = 0; s < n; ++s)
+        {
+            float v = 0.0f;
+            for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
+            dest[s] = (nIn > 0 ? v / (float) nIn : 0.0f);
+        }
+#endif
+    };
+
     const bool   gmOn     = pGuitarMode->load() > 0.5f;
     const float  gmTarget = gmOn ? 1.0f : 0.0f;
     const float* abRef    = dry;                 // what the A/B key auditions
@@ -369,12 +468,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         auto* raw = rawIn.getWritePointer (0);
         auto* shf = shiftBuf.getWritePointer (0);
-        for (int s = 0; s < n; ++s)
-        {
-            float v = 0.0f;
-            for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
-            raw[s] = (nIn > 0 ? v / (float) nIn : 0.0f);
-        }
+        sumInput (raw);
         if (! gmWasActive) { shifter.reset(); gmWasActive = true; }
         shifter.processBlock (raw, shf, n);
         for (int s = 0; s < n; ++s)
@@ -390,14 +484,9 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         gmXf = 0.0f;
         gmWasActive = false;
+        sumInput (dry);
         for (int s = 0; s < n; ++s)
-        {
-            float v = 0.0f;
-            for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
-            const float avg = (nIn > 0 ? v / (float) nIn : 0.0f);
-            dry[s]  = avg;
-            mono[s] = avg * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
-        }
+            mono[s] = dry[s] * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
     }
     smInG = inG;
 
@@ -513,10 +602,27 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto* outL = outBus.getWritePointer (0);
     auto* outR = outBus.getWritePointer (1);
 
+#ifdef BOR_INSTRUMENT
+    // Router: clear every enabled stem bus up front. A strip whose mixStrip
+    // early-outs (muted / soloed-away / -60 dB floor / idle room) then exports
+    // silence rather than stale buffer contents; disabled buses have zero
+    // channels and cost nothing.
+    for (int b = 1; b < getBusCount (false); ++b)
+    {
+        auto sb = getBusBuffer (buffer, false, b);
+        for (int ch = 0; ch < sb.getNumChannels(); ++ch)
+            sb.clear (ch, 0, n);
+    }
+#endif
+
     // ramps from the previous block's effective L/R gains to this block's targets,
     // so gain/pan moves AND mute/solo cuts glide instead of stepping
     auto mixStrip = [&] (const float* lc, float g, float pan, float phase,
-                         float& prevLg, float& prevRg, std::atomic<float>& levelOut)
+                         float& prevLg, float& prevRg, std::atomic<float>& levelOut
+#ifdef BOR_INSTRUMENT
+                       , float* stemL, float* stemR   // Router: this strip's aux bus (nullptr = disabled)
+#endif
+                        )
     {
         const float ang = (pan * 0.5f + 0.5f) * juce::MathConstants<float>::halfPi;
         const float tLg = std::cos (ang) * g * phase, tRg = std::sin (ang) * g * phase;
@@ -533,11 +639,24 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             const float v  = lc[s];
             outL[s] += v * lg;
             outR[s] += v * rg;
+#ifdef BOR_INSTRUMENT
+            if (stemL != nullptr) { stemL[s] = v * lg; stemR[s] = v * rg; }
+#endif
             pk = juce::jmax (pk, std::abs (v));
         }
         prevLg = tLg; prevRg = tRg;
         levelOut.store (pk * std::abs (g), std::memory_order_relaxed);
     };
+
+#ifdef BOR_INSTRUMENT
+    // stem pointers for strip bus b (0-based aux index + 1); nullptr when the
+    // host has the bus disabled
+    auto stemPtr = [&] (int busIdx, int ch) -> float*
+    {
+        auto sb = getBusBuffer (buffer, false, busIdx);
+        return sb.getNumChannels() >= 2 ? sb.getWritePointer (ch) : nullptr;
+    };
+#endif
 
     for (int c = 0; c < NUM_CH; ++c)
     {
@@ -545,13 +664,21 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
         mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c], pan, 1.0f,
-                  smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]);
+                  smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]
+#ifdef BOR_INSTRUMENT
+                , stemPtr (c + 1, 0), stemPtr (c + 1, 1)
+#endif
+                 );
     }
 
     {
         // DI blend stays centred (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, 0.0f, phase, smDiLg, smDiRg, diLevel);
+        mixStrip (dry, diGain, 0.0f, phase, smDiLg, smDiRg, diLevel
+#ifdef BOR_INSTRUMENT
+                , stemPtr (NUM_CH + 1, 0), stemPtr (NUM_CH + 1, 1)
+#endif
+                 );
     }
 
     // --- glue: compress the sum (threshold/ratio scale with the knob) ---
