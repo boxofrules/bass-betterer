@@ -1064,7 +1064,13 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         modeLbl.setBounds  (header.getRight() - padX - 70, cy - 8, 70, 16);
         presetBox.setBounds (header.getRight() - padX - 70 - 12 - 220, cy - 13, 220, 26);
         sys->setBounds (presetBox.getX() - 12 - 44, cy - 13, 44, 26);
-        updateLink.setBounds (sys->getX() - 12 - 170, cy - 13, 170, 26);
+        int linkAnchor = sys->getX();
+        if (gtr != nullptr)   // header GUITAR key — absent in the Standalone
+        {
+            gtr->setBounds (sys->getX() - 12 - 92, cy - 13, 92, 26);
+            linkAnchor = gtr->getX();
+        }
+        updateLink.setBounds (linkAnchor - 12 - 170, cy - 13, 170, 26);
         info->setBounds (getLocalBounds().withSizeKeepingCentre (430, 262));
 
         hdrRuleY = r.getY();
@@ -1092,14 +1098,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // spectrum analyzer fills the left, with the FREQ mode cycler (and the
-        // GUITAR mode key) above it
+        // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
-        auto row = left.removeFromTop (24);
-        freq->setBounds (row.removeFromLeft (92));
-        row.removeFromLeft (8);
-        if (gtr != nullptr)   // absent in the Standalone
-            gtr->setBounds (row.removeFromLeft (92));
+        freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
 
