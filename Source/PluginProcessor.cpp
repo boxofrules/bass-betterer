@@ -120,7 +120,8 @@ BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor()
 
 void BoRBassEnhancerProcessor::refreshLatency()
 {
-    const int lat = (pGuitarMode != nullptr && pGuitarMode->load() > 0.5f)
+    const int lat = (wrapperType != wrapperType_Standalone
+                     && pGuitarMode != nullptr && pGuitarMode->load() > 0.5f)
                         ? shifter.latencySamples() : 0;
     if (lat != getLatencySamples())
         setLatencySamples (lat);
@@ -180,7 +181,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
     // v1.0: GUITAR mode — the whole chain hears the input an octave down
     // (play a guitar, get a bass). Default off reproduces every earlier
     // render byte-identically. Excluded from preset load/save: presets are
-    // tones, this is "what instrument is plugged in".
+    // tones, this is "what instrument is plugged in". Plugin formats only —
+    // the Standalone hides the key and force-bypasses the mode.
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "guitar_mode", 1 }, "Guitar Mode", false));
 
     // DI blend strip — the original DI tone, blended in. Muted by default.
@@ -362,7 +364,12 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smSnap) smInG = inG;
     auto* mono = monoIn.getWritePointer (0);
     auto* dry  = dryIn.getWritePointer (0);
-    const bool   gmOn     = pGuitarMode->load() > 0.5f;
+    // GUITAR mode is a plugin-format feature (AU/VST3/AAX): in the Standalone
+    // the toggle is hidden and the mode is force-bypassed, whatever a loaded
+    // session says. (bor-bench instantiates with wrapperType_Undefined, so the
+    // fingerprint config still exercises the shifter.)
+    const bool   gmOn     = pGuitarMode->load() > 0.5f
+                              && wrapperType != wrapperType_Standalone;
     const float  gmTarget = gmOn ? 1.0f : 0.0f;
     const float* abRef    = dry;                 // what the A/B key auditions
     if (gmOn || gmXf > 1.0e-4f)                  // engaged, or still fading out
