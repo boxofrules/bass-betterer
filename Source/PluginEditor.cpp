@@ -749,21 +749,25 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // (not ButtonAttachment) so host automation recolors this editor too;
         // sendInitialUpdate paints the right theme when the editor opens on a
         // session already in guitar mode. Created last: applyTheme touches
-        // every themed component above.
-        gtr = std::make_unique<bbe::SquareButton> ("GUITAR", bor::guitarRed, bor::accentOn);
-        gtr->setTooltip ("Guitar mode: pitch the input down an octave — play a guitar, get a bass");
-        gtr->setClickingTogglesState (false);
-        addAndMakeVisible (*gtr);
-        if (auto* prm = proc.apvts.getParameter ("guitar_mode"))
+        // every themed component above. Plugin formats only — the Standalone
+        // gets no key (and the processor force-bypasses the mode there).
+        if (proc.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
         {
-            gtrAtt = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v)
+            gtr = std::make_unique<bbe::SquareButton> ("GUITAR", bor::guitarRed, bor::accentOn);
+            gtr->setTooltip ("Guitar mode: pitch the input down an octave — play a guitar, get a bass");
+            gtr->setClickingTogglesState (false);
+            addAndMakeVisible (*gtr);
+            if (auto* prm = proc.apvts.getParameter ("guitar_mode"))
             {
-                gtrOn = v > 0.5f;
-                gtr->setToggleState (gtrOn, juce::dontSendNotification);
-                applyTheme (gtrOn);
-            });
-            gtrAtt->sendInitialUpdate();
-            gtr->onClick = [this] { gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f); };
+                gtrAtt = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v)
+                {
+                    gtrOn = v > 0.5f;
+                    gtr->setToggleState (gtrOn, juce::dontSendNotification);
+                    applyTheme (gtrOn);
+                });
+                gtrAtt->sendInitialUpdate();
+                gtr->onClick = [this] { gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f); };
+            }
         }
 
         setSize (1180, 784);   // 9 columns (DI + 8 strips)
@@ -1094,7 +1098,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         auto row = left.removeFromTop (24);
         freq->setBounds (row.removeFromLeft (92));
         row.removeFromLeft (8);
-        gtr->setBounds (row.removeFromLeft (92));
+        if (gtr != nullptr)   // absent in the Standalone
+            gtr->setBounds (row.removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
 
