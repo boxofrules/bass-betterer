@@ -51,8 +51,8 @@ static const char* fuzzIrFor (int fx, int& size)
     }
 }
 
-// FX channel (0..2) -> DIST cab IR: the Dual Terror BLEND (v0.2.1, mirroring
-// the premium "DIST 2" recipe exactly — one representative Terror voice per
+// FX channel (0..2) -> DIST cab IR: the DIST BLEND (v0.2.1, mirroring
+// the premium "DIST 2" recipe exactly — one representative rig voice per
 // mic, the six curated family captures averaged offline into one impulse;
 // 57 / AT->421 / OX->TWEETER). The TYPE key swaps the drive-path cab between
 // this and the H1 fuzz cab — the clipper params are unchanged by the swap.
@@ -372,7 +372,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             // cheap when unchanged, glides (no reset) when switched live.
             // Locks carry the character's measured loudness adjust so a
             // character switch holds level (bor-bench cal). v0.2.1: DIST also
-            // swaps the drive-path cab to the Dual Terror blend (below) —
+            // swaps the drive-path cab to the DIST blend (below) —
             // the cab IS the character difference, same recipe as premium.
             auto lk = drive::LOCKS[(size_t) slot];
             lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
@@ -590,9 +590,9 @@ static void migrateState (juce::XmlElement& xml)
     }
     xml.setAttribute ("stateVersion", 2);
 }
-// stateVersion 3 (v0.2.0) adds the HI strips and the per-strip drive type.
-// No value migration is needed: every new parameter's default reproduces the
-// old behaviour exactly (HI strips muted, LO drive type FUZZ), so a v2
+// stateVersion 3 (v0.2.0) added the since-removed octave strips and the
+// per-strip drive type. No value migration is needed: every new parameter's
+// default reproduces the old behaviour exactly (octave strips muted, LO drive type FUZZ), so a v2
 // session loads bit-identically with the new params at their defaults.
 
 void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -634,8 +634,8 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
                          {"sub_gain",-3.0f},{"lowcln1_gain",-5.0f},{"lowcln2_gain",-8.0f} } },
         // v0.2.0: the DIST character across the FX strips — tighter and
         // brighter than Dirt Wall's fuzz, the low bed pulled back so the mids
-        // own the drive. (v0.2.1: Crunch Air left with the HI layers — the
-        // octave strips are premium now.)
+        // own the drive. (v0.2.1: Crunch Air left with the octave layers —
+        // they are premium now.)
         { "Dist Stack", { {"in_gain",3.0f},{"glue",0.35f},
                           {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
                           {"lofx57_drivetype",1.0f},{"lofx421_drivetype",1.0f},{"lofxtwt_drivetype",1.0f},

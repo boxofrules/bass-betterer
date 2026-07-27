@@ -768,7 +768,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "SAMPLE RATE|" + juce::String (proc.getSampleRate(), 0) + " Hz",
                 "BLOCK|"       + juce::String (proc.getLastBlockSize()) + " smp (host)",
                 "LATENCY|"     + juce::String (proc.getLatencySamples())
-                               + (proc.getLatencySamples() > 0 ? " smp (HI octave lookahead)"
+                               + (proc.getLatencySamples() > 0 ? " smp (octave lookahead)"
                                                                : " smp (zero-latency convolution)"),
                 "FUZZ OS|4x, +" + juce::String (proc.getFuzzOsLatency(), 2) + " smp in the fuzz path",
                 "CPU|"         + juce::String (cpuDisp * 100.0f, 1) + " % of one core",
