@@ -68,16 +68,19 @@ static const char* distIrFor (int fx, int& size)
 }
 
 #ifdef BOR_INSTRUMENT
-// Bass Better-Router bus map. Inputs: bus 0 "DI In" (stereo — Logic feeds an
-// instrument's Side Chain to an input element; VST3 hosts route audio here)
-// and bus 1 "Key In" (mono — JUCE's AAX wrapper only recognises a sidechain
-// as input bus 1, mono). The input collapse sums the per-bus averages, so it
-// does not matter which one the host feeds and a silent unconnected bus
-// cannot halve the level. Outputs: bus 0 "Mix" (exactly the effect's output,
-// glue and all) + one stereo stem per strip + the DI stem, all
-// default-disabled so a plain stereo instantiation (Logic "Stereo", the AAX
-// no-stem fallback) works unchanged. Stems are post-fader/pan/phase/mute/
-// solo and PRE-glue/pre-output-gain.
+// Bass Better-Router bus map — the Ultrabeat model, multi-output ONLY.
+// Inputs: bus 0 "DI In" (stereo — Logic feeds an instrument's Side Chain to
+// an input element; VST3 hosts route audio here) and bus 1 "Key In" (mono —
+// JUCE's AAX wrapper only recognises a sidechain as input bus 1, mono). The
+// input collapse sums the per-bus averages, so it does not matter which one
+// the host feeds and a silent unconnected bus cannot halve the level.
+// Outputs: bus 0 "Mix" (stereo, exactly the effect's output, glue and all),
+// then one stem per strip — the six voicings are ALWAYS MONO (panning is the
+// host channel strip's job; the Router hides those pans), the two rooms are
+// stereo (host may collapse to mono), and the DI stem is mono. Everything is
+// default-ENABLED: in Logic the instrument picker offers only the Multi
+// Output configuration and the mixer strip's -/+ spawns the aux strips.
+// Stems are post-fader/phase/mute/solo and PRE-glue/pre-output-gain.
 juce::AudioProcessor::BusesProperties BoRBassEnhancerProcessor::routerBuses()
 {
     auto bp = BusesProperties()
@@ -85,8 +88,9 @@ juce::AudioProcessor::BusesProperties BoRBassEnhancerProcessor::routerBuses()
         .withInput  ("Key In", juce::AudioChannelSet::mono(),   true)
         .withOutput ("Mix",    juce::AudioChannelSet::stereo(), true);
     for (const auto& ch : channels)
-        bp = bp.withOutput (ch.name, juce::AudioChannelSet::stereo(), false);
-    return bp.withOutput ("DI", juce::AudioChannelSet::stereo(), false);
+        bp = bp.withOutput (ch.name, ch.isRoom ? juce::AudioChannelSet::stereo()
+                                               : juce::AudioChannelSet::mono(), true);
+    return bp.withOutput ("DI", juce::AudioChannelSet::mono(), true);
 }
 #endif
 
@@ -362,12 +366,14 @@ int BoRBassEnhancerProcessor::readAnalyzer (int which, float* dest, int maxSampl
 bool BoRBassEnhancerProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
 #ifdef BOR_INSTRUMENT
-    // Router: main out mono/stereo; DI In mono/stereo/off; Key In mono/off
-    // (the AAX sidechain contract); every stem stereo/off. No preferred-
-    // channel shortcuts — JUCE's dynamic probing is what surfaces the AU
-    // multi-output configs Logic offers.
-    const auto mainOut = layouts.getMainOutputChannelSet();
-    if (mainOut != juce::AudioChannelSet::mono() && mainOut != juce::AudioChannelSet::stereo())
+    // Router: Mix is stereo, voicing/DI stems are mono, room stems mono or
+    // stereo. In the AU build the stems are MANDATORY (no disabled option),
+    // so Logic offers only the Multi Output configuration — the Ultrabeat
+    // model. Other wrappers (AAX/VST3) additionally accept disabled stems:
+    // the AAX wrapper requires an all-aux-disabled fallback descriptor, and
+    // VST3 hosts vary. No preferred-channel shortcuts — JUCE's dynamic
+    // probing is what surfaces the AU multi-output config.
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
     const auto in0 = layouts.getChannelSet (true, 0);
     if (in0 != juce::AudioChannelSet::mono() && in0 != juce::AudioChannelSet::stereo()
@@ -379,7 +385,15 @@ bool BoRBassEnhancerProcessor::isBusesLayoutSupported (const BusesLayout& layout
     for (int b = 1; b < layouts.outputBuses.size(); ++b)
     {
         const auto s = layouts.getChannelSet (false, b);
-        if (s != juce::AudioChannelSet::stereo() && s != juce::AudioChannelSet::disabled())
+        const bool room = (b == 7 || b == 8);   // buses 1..8 = channels 0..7; 9 = DI
+        if (s == juce::AudioChannelSet::disabled())
+        {
+            if (wrapperType == wrapperType_AudioUnit)
+                return false;                    // AU: multi-output only
+            continue;
+        }
+        if (room ? (s != juce::AudioChannelSet::mono() && s != juce::AudioChannelSet::stereo())
+                 : (s != juce::AudioChannelSet::mono()))
             return false;
     }
     return true;
@@ -647,7 +661,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             outL[s] += v * lg;
             outR[s] += v * rg;
 #ifdef BOR_INSTRUMENT
-            if (stemL != nullptr) { stemL[s] = v * lg; stemR[s] = v * rg; }
+            if (stemL != nullptr)
+            {
+                if (stemR != nullptr) { stemL[s] = v * lg; stemR[s] = v * rg; }
+                // mono stem: recover the ramped fader gain from the equal-power
+                // pair (pan is centred on every mono-stem strip, so this is
+                // exactly v * g; for a host-collapsed room it is the power sum)
+                else                    stemL[s] = v * (lg + rg) * 0.70710678f;
+            }
 #endif
             pk = juce::jmax (pk, std::abs (v));
         }
@@ -661,7 +682,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto stemPtr = [&] (int busIdx, int ch) -> float*
     {
         auto sb = getBusBuffer (buffer, false, busIdx);
-        return sb.getNumChannels() >= 2 ? sb.getWritePointer (ch) : nullptr;
+        return ch < sb.getNumChannels() ? sb.getWritePointer (ch) : nullptr;
     };
 #endif
 
@@ -669,7 +690,13 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         // inactive strips still mix with target gain 0 so the cut ramps out
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
+#ifdef BOR_INSTRUMENT
+        // Router: only the rooms pan (their stems are stereo); the mono-stem
+        // voicings stay centred — panning is the host channel strip's job
+        const float pan = channels[(size_t) c].isRoom ? pPan[(size_t) c]->load() : 0.0f;
+#else
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
+#endif
         mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c], pan, 1.0f,
                   smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]
 #ifdef BOR_INSTRUMENT

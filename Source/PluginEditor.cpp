@@ -702,8 +702,15 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         {
             const int c = displayOrder[(size_t) k];
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
+#ifdef BOR_INSTRUMENT
+            // Router: the voicing stems are mono outs — panning is the host
+            // channel strip's job, so only the (stereo-stem) rooms keep a pan
+            const bool hasPan = stereo && ch.isRoom;
+#else
+            const bool hasPan = stereo && c != 0;
+#endif
             strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
-                                        stereo && c != 0, false, faderLnf, panLnf));
+                                        hasPan, false, faderLnf, panLnf));
         }
         for (auto* s : strips) addAndMakeVisible (s);
 
