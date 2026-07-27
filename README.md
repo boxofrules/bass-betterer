@@ -13,6 +13,13 @@ A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
 
+## What's new in 1.0
+
+Out of beta.
+
+- **GUITAR mode** — the new GUITAR key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. Plugin formats only (AU/VST3/AAX): the Standalone app doesn't carry the GUITAR key.
+- All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ remains byte-for-byte identical to every release before it.
+
 ## What's new in 0.2.x
 
 - **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a second amp character: the same drive through a blended rig capture. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
