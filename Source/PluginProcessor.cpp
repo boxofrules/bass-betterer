@@ -95,6 +95,8 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pOutGain  = P ("out_gain");
     pGlue     = P ("glue");
     pAnalyzer = P ("analyzer");
+    pGuitarMode = P ("guitar_mode");
+    apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
     pDiGain   = P ("di_gain");
     pDiMute   = P ("di_mute");
     pDiSolo   = P ("di_solo");
@@ -110,7 +112,19 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     apvts.state.setProperty ("freqView", "all", nullptr);
 }
 
-BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor() = default;
+BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor()
+{
+    apvts.removeParameterListener ("guitar_mode", this);
+    cancelPendingUpdate();
+}
+
+void BoRBassEnhancerProcessor::refreshLatency()
+{
+    const int lat = (pGuitarMode != nullptr && pGuitarMode->load() > 0.5f)
+                        ? shifter.latencySamples() : 0;
+    if (lat != getLatencySamples())
+        setLatencySamples (lat);
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::createLayout()
 {
@@ -163,6 +177,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         NormalisableRange<float> (-24.0f, 24.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
     // spectrum analyzer feed on/off (turn off to save CPU)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "analyzer", 1 }, "Analyzer", true));
+    // v1.0: GUITAR mode — the whole chain hears the input an octave down
+    // (play a guitar, get a bass). Default off reproduces every earlier
+    // render byte-identically. Excluded from preset load/save: presets are
+    // tones, this is "what instrument is plugged in".
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { "guitar_mode", 1 }, "Guitar Mode", false));
 
     // DI blend strip — the original DI tone, blended in. Muted by default.
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -245,6 +264,15 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     layerBuf.setSize (NUM_CH, samplesPerBlock);
     voiceMono.allocate ((size_t) samplesPerBlock, true);
 
+    // GUITAR mode: octave-down shifter + raw/shifted scratch. The engage
+    // crossfade snaps to the saved state (no fade-in on session load).
+    shifter.prepare (sampleRate, 0.5, false);
+    rawIn.setSize    (1, samplesPerBlock);
+    shiftBuf.setSize (1, samplesPerBlock);
+    gmCoef = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.010));
+    gmXf = pGuitarMode->load() > 0.5f ? 1.0f : 0.0f;
+    gmWasActive = gmXf > 0.0f;
+
     for (int w = 0; w < 2; ++w)
     {
         analyzerBuf[(size_t) w].setSize (1, analyzerFifo[(size_t) w].getTotalSize());
@@ -264,6 +292,10 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
                               : pDriveType[(size_t) (fx + 3)]->load() > 0.5f ? DrivePath::distCab
                                                                              : DrivePath::fuzzCab;
     roomIdle.fill (false);
+
+    // prepare is the canonical (message-thread-safe) latency report point;
+    // runtime toggles go through the guitar_mode listener -> AsyncUpdater.
+    refreshLatency();
 }
 
 // ---- spectrum analyzer SPSC fifos -------------------------------------------
@@ -320,17 +352,52 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float rampInc = 1.0f / (float) n;
 
     // --- input: dry DI (pre-gain, for the DI blend) + mono with input-gain (pushes fuzz) ---
+    // GUITAR mode inserts the octave-down shifter here, ahead of everything:
+    // the shifted signal becomes the plugin's "DI" (dry -> DI blend strip,
+    // analyzer, and mono -> the stack), while rawIn keeps the true input for
+    // the A/B reference. The else-branch is the original input stage,
+    // untouched — with the mode off the shifter never runs (fully bypassed,
+    // not run-and-discarded) and every earlier render stays byte-identical.
     const float inG = juce::Decibels::decibelsToGain (pInGain->load());
     if (smSnap) smInG = inG;
     auto* mono = monoIn.getWritePointer (0);
     auto* dry  = dryIn.getWritePointer (0);
-    for (int s = 0; s < n; ++s)
+    const bool   gmOn     = pGuitarMode->load() > 0.5f;
+    const float  gmTarget = gmOn ? 1.0f : 0.0f;
+    const float* abRef    = dry;                 // what the A/B key auditions
+    if (gmOn || gmXf > 1.0e-4f)                  // engaged, or still fading out
     {
-        float v = 0.0f;
-        for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
-        const float avg = (nIn > 0 ? v / (float) nIn : 0.0f);
-        dry[s]  = avg;
-        mono[s] = avg * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
+        auto* raw = rawIn.getWritePointer (0);
+        auto* shf = shiftBuf.getWritePointer (0);
+        for (int s = 0; s < n; ++s)
+        {
+            float v = 0.0f;
+            for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
+            raw[s] = (nIn > 0 ? v / (float) nIn : 0.0f);
+        }
+        if (! gmWasActive) { shifter.reset(); gmWasActive = true; }
+        shifter.processBlock (raw, shf, n);
+        for (int s = 0; s < n; ++s)
+        {
+            gmXf += gmCoef * (gmTarget - gmXf);  // 10 ms one-pole, same law as abXf
+            const float v = raw[s] + gmXf * (shf[s] - raw[s]);
+            dry[s]  = v;
+            mono[s] = v * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
+        }
+        abRef = rawIn.getReadPointer (0);        // A/B = the true (un-shifted) input
+    }
+    else
+    {
+        gmXf = 0.0f;
+        gmWasActive = false;
+        for (int s = 0; s < n; ++s)
+        {
+            float v = 0.0f;
+            for (int ch = 0; ch < nIn; ++ch) v += buffer.getReadPointer (ch)[s];
+            const float avg = (nIn > 0 ? v / (float) nIn : 0.0f);
+            dry[s]  = avg;
+            mono[s] = avg * (smInG + (inG - smInG) * (float) (s + 1) * rampInc);
+        }
     }
     smInG = inG;
 
@@ -530,6 +597,9 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     smSnap = false;
 
     // --- DI reference A/B: crossfade the host buffer toward the raw DI ---
+    // In GUITAR mode abRef is the true (un-shifted) input — the A/B key
+    // answers "what did I plug in", not "what does the shifter feed the stack".
+    // With the mode off, abRef IS dry (same pointer, unchanged behaviour).
     const float abTarget = abDi.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
     if (abXf > 1.0e-4f || abTarget > 0.0f)
     {
@@ -539,7 +609,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             for (int ch = 0; ch < juce::jmin (numOut, 2); ++ch)
             {
                 auto* o = buffer.getWritePointer (ch);
-                o[s] += abXf * (dry[s] - o[s]);
+                o[s] += abXf * (abRef[s] - o[s]);
             }
         }
     }
@@ -562,7 +632,7 @@ void BoRBassEnhancerProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 3);
+        xml->setAttribute ("stateVersion", 4);
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -594,6 +664,8 @@ static void migrateState (juce::XmlElement& xml)
 // per-strip drive type. No value migration is needed: every new parameter's
 // default reproduces the old behaviour exactly (octave strips muted, LO drive type FUZZ), so a v2
 // session loads bit-identically with the new params at their defaults.
+// stateVersion 4 (v1.0) adds guitar_mode. Default false reproduces a v3
+// session byte-identically — no value migration.
 
 void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
@@ -607,6 +679,18 @@ void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeIn
 
 // ---- presets ---------------------------------------------------------------
 // Factory presets are param overrides (plain values) applied on top of a reset.
+// GUITAR mode is excluded from the preset surface entirely (presets are tones,
+// the mode is "what instrument is plugged in"): the factory reset skips it,
+// user presets neither save it nor apply it. Sessions still persist it.
+static void stripGuitarMode (juce::XmlElement& xml)
+{
+    for (auto* p : xml.getChildWithTagNameIterator ("PARAM"))
+        if (p->getStringAttribute ("id") == "guitar_mode")
+        {
+            xml.removeChildElement (p, true);
+            return;
+        }
+}
 namespace {
 using PV = std::pair<juce::String, float>;
 const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
@@ -658,7 +742,8 @@ void BoRBassEnhancerProcessor::loadFactoryPreset (int index)
     if (index < 0 || index >= (int) list.size()) return;
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
-            rp->setValueNotifyingHost (rp->getDefaultValue());
+            if (rp->paramID != "guitar_mode")   // presets are tones; GUITAR mode is what's plugged in
+                rp->setValueNotifyingHost (rp->getDefaultValue());
     for (auto& kv : list[(size_t) index].second)
         if (auto* p = apvts.getParameter (kv.first))
             p->setValueNotifyingHost (p->convertTo0to1 (kv.second));
@@ -677,7 +762,8 @@ bool BoRBassEnhancerProcessor::saveUserPreset (const juce::String& name)
     auto f = getUserPresetDir().getChildFile (juce::File::createLegalFileName (name) + ".xml");
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 3);
+        xml->setAttribute ("stateVersion", 4);
+        stripGuitarMode (*xml);
         return xml->writeTo (f);
     }
     return false;
@@ -689,6 +775,7 @@ bool BoRBassEnhancerProcessor::loadUserPresetFile (const juce::File& f)
         if (xml->hasTagName (apvts.state.getType()))
         {
             migrateState (*xml);
+            stripGuitarMode (*xml);   // a shared/hand-edited preset must not flip the octave
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
             return true;
         }

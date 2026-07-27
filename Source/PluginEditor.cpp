@@ -19,6 +19,10 @@ namespace bor
     const juce::Colour mute2      { 0xff9B958A };
     const juce::Colour rule       { 0xff2A2C30 };
     const juce::Colour accent     { 0xff69AFBF };   // signal cyan
+    // GUITAR mode accent: warm signal red, luminance-matched to the cyan so
+    // ink text stays legible on lit keys, and clearly lighter than the meter
+    // clip red (oxbloodHi) so the two never read as the same signal.
+    const juce::Colour guitarRed  { 0xffD96A56 };
     const juce::Colour accentOn   { 0xff0B0B0C };
     const juce::Colour sigOff     { 0xff3A3C40 };
     const juce::Colour vu         { 0xff4FAE5A };
@@ -81,9 +85,13 @@ struct FaderLnf : public juce::LookAndFeel_V4
     }
 };
 
-// ---- arc rotary (outline circle, cyan arc, bone pointer) -------------------
+// ---- arc rotary (outline circle, accent arc, bone pointer) ------------------
+// `accent` is a per-instance member (not bor::accent directly) so GUITAR mode
+// can recolor this editor without touching other open instances.
 struct KnobLnf : public juce::LookAndFeel_V4
 {
+    juce::Colour accent { bor::accent };
+
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float pos, float startAngle, float endAngle, juce::Slider&) override
     {
@@ -95,7 +103,7 @@ struct KnobLnf : public juce::LookAndFeel_V4
         const float toAngle = startAngle + pos * (endAngle - startAngle);
         juce::Path arc;
         arc.addCentredArc (cx, cy, r, r, 0.0f, startAngle, toAngle, true);
-        g.setColour (bor::accent);
+        g.setColour (accent);
         g.strokePath (arc, juce::PathStrokeType (2.0f));
         const float px = cx + std::sin (toAngle) * (r - 4.0f);
         const float py = cy - std::cos (toAngle) * (r - 4.0f);
@@ -125,7 +133,7 @@ struct PanLnf : public KnobLnf
         juce::Path arc;
         arc.addCentredArc (cx, cy, r, r, 0.0f,
                            juce::jmin (midAngle, toAngle), juce::jmax (midAngle, toAngle), true);
-        g.setColour (bor::accent);
+        g.setColour (accent);
         g.strokePath (arc, juce::PathStrokeType (2.0f));
         const float px = cx + std::sin (toAngle) * (r - 4.0f);
         const float py = cy - std::cos (toAngle) * (r - 4.0f);
@@ -170,7 +178,13 @@ struct HexLogo : public juce::Component
         if (drawable != nullptr)
             drawable->drawWithin (g, getLocalBounds().toFloat(), juce::RectanglePlacement::centred, 1.0f);
     }
+    // GUITAR-mode recolor: swap the SVG fill in place (no re-parse)
+    void setAccent (juce::Colour c)
+    {
+        if (drawable != nullptr && c != cur) { drawable->replaceColour (cur, c); cur = c; repaint(); }
+    }
     std::unique_ptr<juce::Drawable> drawable;
+    juce::Colour cur { 0xff69AFBF };   // must match the fill in the SVG string above
 };
 
 // ---- master knob: caption + rotary + tabular value -------------------------
@@ -234,7 +248,7 @@ struct Strip : public juce::Component
         // v0.2.0: the SC (sidechain duck) key left the free plugin — premium
         // feature. The `_duck` params stay declared-but-inert in the processor.
         mute  = makeTog ("M",  bor::bone,   bor::ink,     "Mute");
-        solo  = makeTog ("S",  bor::accent, bor::accentOn,"Solo");
+        solo  = makeTog ("S",  accent,      bor::accentOn,"Solo");
         phase = makeTog (juce::String::fromUTF8 ("\xC3\x98"), bor::bone, bor::ink, "Phase invert");
         muteAtt  = std::make_unique<BA> (p.apvts, prefix + "_mute",  *mute);
         soloAtt  = std::make_unique<BA> (p.apvts, prefix + "_solo",  *solo);
@@ -243,7 +257,7 @@ struct Strip : public juce::Component
 
         if (isFX)
         {
-            fuzz = makeTog ("FUZZ", bor::accent, bor::accentOn, "Engage the drive");
+            fuzz = makeTog ("FUZZ", accent, bor::accentOn, "Engage the drive");
             fuzzAtt = std::make_unique<BA> (p.apvts, prefix + "_fuzz", *fuzz);
             // v0.2.0: the drive character key. The engage key's label reads
             // the ACTIVE character (FUZZ or DIST) so it never claims a sound
@@ -293,9 +307,18 @@ struct Strip : public juce::Component
     void refreshMuted()
     {
         muted = mute->getToggleState();
-        gain.setColour (juce::Slider::trackColourId, muted ? bor::sigOff : bor::accent);
-        gain.setColour (juce::Slider::thumbColourId, muted ? bor::mute   : bor::accent);
+        gain.setColour (juce::Slider::trackColourId, muted ? bor::sigOff : accent);
+        gain.setColour (juce::Slider::thumbColourId, muted ? bor::mute   : accent);
         gain.repaint(); repaint();
+    }
+
+    // GUITAR-mode recolor: re-push the colours that were copied at construction
+    void setAccent (juce::Colour a)
+    {
+        accent = a;
+        if (solo != nullptr) solo->onBg = a;
+        if (fuzz != nullptr) fuzz->onBg = a;
+        refreshMuted();   // re-pushes fader track/thumb + repaints the strip
     }
 
     // meters tick at 30 Hz on every strip — repaint only the 8 px meter column,
@@ -369,6 +392,7 @@ struct Strip : public juce::Component
     }
 
     bool isFX, hasPan, hasAB;
+    juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
     juce::String chName;
     juce::Slider gain, pan;
     std::unique_ptr<SquareButton> mute, solo, phase, fuzz, ab, type;
@@ -530,8 +554,8 @@ struct Analyzer : public juce::Component
                 fill.lineTo (inner.getRight(), inner.getBottom());
                 fill.lineTo (inner.getX(), inner.getBottom());
                 fill.closeSubPath();
-                g.setColour (bor::accent.withAlpha (0.16f)); g.fillPath (fill);
-                g.setColour (bor::accent);                   g.strokePath (outLine, juce::PathStrokeType (1.5f));
+                g.setColour (accent.withAlpha (0.16f)); g.fillPath (fill);
+                g.setColour (accent);                   g.strokePath (outLine, juce::PathStrokeType (1.5f));
             }
         }
 
@@ -548,7 +572,7 @@ struct Analyzer : public juce::Component
             if (view != 2)
             { g.setColour (bor::mute2);  g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 DI"),  leg.removeFromLeft (38), juce::Justification::topLeft); }
             if (view != 1)
-            { g.setColour (bor::accent); g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 OUT"), leg.removeFromLeft (44), juce::Justification::topLeft); }
+            { g.setColour (accent); g.drawText (juce::String::fromUTF8 ("\xE2\x80\x94 OUT"), leg.removeFromLeft (44), juce::Justification::topLeft); }
         }
         g.setColour (bor::mute2);
         g.drawText ("dB", juce::Rectangle<int> ((int) inner.getRight() - 26, (int) inner.getY() + 3, 22, 10),
@@ -562,6 +586,7 @@ struct Analyzer : public juce::Component
     std::array<Trace, 2> traces;   // [0] processed output, [1] raw DI
     bool on = true;
     int  view = 0;                 // 0 = ALL, 1 = PRE (DI only), 2 = POST (out only)
+    juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
 };
 
 // ---- SYS overlay: live engine/host stats (CPU, latency, buffer, format) -----
@@ -571,7 +596,7 @@ struct InfoPanel : public juce::Component
     InfoPanel()
     {
         setInterceptsMouseClicks (true, true);   // children (COPY) must get clicks
-        copyBtn = std::make_unique<SquareButton> ("COPY", bor::accent, bor::accentOn);
+        copyBtn = std::make_unique<SquareButton> ("COPY", accent, bor::accentOn);
         copyBtn->setClickingTogglesState (false);
         copyBtn->setTooltip ("Copy these stats to the clipboard (for bug reports)");
         copyBtn->onClick = [this]
@@ -598,7 +623,7 @@ struct InfoPanel : public juce::Component
     {
         auto b = getLocalBounds().toFloat();
         g.setColour (bor::ink.withAlpha (0.97f)); g.fillRect (b);
-        g.setColour (bor::accent);                g.drawRect (b, 1.0f);
+        g.setColour (accent);                     g.drawRect (b, 1.0f);
         auto r = getLocalBounds().reduced (16, 12);
         g.setColour (bor::bone);
         g.setFont (bor::mono (11.0f, true));
@@ -619,6 +644,7 @@ struct InfoPanel : public juce::Component
     std::function<void()> onDismiss;
     juce::StringArray lines;
     std::unique_ptr<SquareButton> copyBtn;
+    juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
 };
 
 static void drawRegMark (juce::Graphics& g, int x, int y)
@@ -719,9 +745,49 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         outKnob  = std::make_unique<bbe::Knob> (proc, "out_gain", "OUTPUT", 1, knobLnf);
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
 
+        // GUITAR mode: octave-down front end + red theme. ParameterAttachment
+        // (not ButtonAttachment) so host automation recolors this editor too;
+        // sendInitialUpdate paints the right theme when the editor opens on a
+        // session already in guitar mode. Created last: applyTheme touches
+        // every themed component above.
+        gtr = std::make_unique<bbe::SquareButton> ("GUITAR", bor::guitarRed, bor::accentOn);
+        gtr->setTooltip ("Guitar mode: pitch the input down an octave — play a guitar, get a bass");
+        gtr->setClickingTogglesState (false);
+        addAndMakeVisible (*gtr);
+        if (auto* prm = proc.apvts.getParameter ("guitar_mode"))
+        {
+            gtrAtt = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v)
+            {
+                gtrOn = v > 0.5f;
+                gtr->setToggleState (gtrOn, juce::dontSendNotification);
+                applyTheme (gtrOn);
+            });
+            gtrAtt->sendInitialUpdate();
+            gtr->onClick = [this] { gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f); };
+        }
 
         setSize (1180, 784);   // 9 columns (DI + 8 strips)
         startTimerHz (30);
+    }
+
+    // Pushes the theme accent into every component that painted or copied it.
+    // Called only on guitar_mode edges (toggle/automation/session load) — one
+    // full repaint per switch, never from the 30 Hz timer.
+    void applyTheme (bool guitar)
+    {
+        const auto a = guitar ? bor::guitarRed : bor::accent;
+        if (a == themeAccent) return;
+        themeAccent    = a;
+        knobLnf.accent = a;
+        panLnf.accent  = a;
+        for (auto* s : strips) s->setAccent (a);
+        analyzer->accent = a;
+        info->accent = a;
+        info->copyBtn->onBg = a;
+        freq->onBg = a;
+        sys->onBg  = a;
+        logo->setAccent (a);
+        repaint();
     }
 
     ~Content() override
@@ -768,7 +834,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "SAMPLE RATE|" + juce::String (proc.getSampleRate(), 0) + " Hz",
                 "BLOCK|"       + juce::String (proc.getLastBlockSize()) + " smp (host)",
                 "LATENCY|"     + juce::String (proc.getLatencySamples())
-                               + (proc.getLatencySamples() > 0 ? " smp (octave lookahead)"
+                               + (proc.getLatencySamples() > 0 ? " smp (GUITAR octave tracking)"
                                                                : " smp (zero-latency convolution)"),
                 "FUZZ OS|4x, +" + juce::String (proc.getFuzzOsLatency(), 2) + " smp in the fuzz path",
                 "CPU|"         + juce::String (cpuDisp * 100.0f, 1) + " % of one core",
@@ -966,7 +1032,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     void paint (juce::Graphics& g) override
     {
         g.fillAll (bor::ink);
-        g.setColour (bor::accent.withAlpha (0.035f));
+        g.setColour (themeAccent.withAlpha (0.035f));
         for (int x = 0; x < getWidth();  x += 32) g.drawVerticalLine  (x, 0.0f, (float) getHeight());
         for (int y = 0; y < getHeight(); y += 32) g.drawHorizontalLine (y, 0.0f, (float) getWidth());
 
@@ -1022,9 +1088,13 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // spectrum analyzer fills the left, with the FREQ mode cycler above it
+        // spectrum analyzer fills the left, with the FREQ mode cycler (and the
+        // GUITAR mode key) above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
-        freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
+        auto row = left.removeFromTop (24);
+        freq->setBounds (row.removeFromLeft (92));
+        row.removeFromLeft (8);
+        gtr->setBounds (row.removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
 
@@ -1046,7 +1116,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<juce::FileChooser> fileChooser;   // v0.2.0 preset-file loader (async)
     juce::OwnedArray<bbe::Strip> strips;
     std::unique_ptr<bbe::Analyzer> analyzer;
-    std::unique_ptr<bbe::SquareButton> freq, sys;
+    std::unique_ptr<bbe::SquareButton> freq, sys, gtr;
+    std::unique_ptr<juce::ParameterAttachment> gtrAtt;   // GUITAR mode (recolors on automation too)
+    bool gtrOn = false;
+    juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };

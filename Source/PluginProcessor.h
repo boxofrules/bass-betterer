@@ -4,19 +4,24 @@
 #include <juce_dsp/juce_dsp.h>
 #include <array>
 #include "FuzzChain.h"
+#include "OctaveShifter.h"
 
 // Bass Better-er — drop on a bass DI channel; splits it into the BoR multi-mic
 // voicings (each a measured H1 cab IR), mixes them with per-channel level/mute/solo/
 // pan, optional fuzz on the LO FX channels, glue compression on the sum, and I/O trim.
-class BoRBassEnhancerProcessor : public juce::AudioProcessor
+class BoRBassEnhancerProcessor : public juce::AudioProcessor,
+                                 private juce::AudioProcessorValueTreeState::Listener,
+                                 private juce::AsyncUpdater
 {
 public:
     // v0.2.1: back to the 8 v0.1.x strips. The v0.2.0 octave-up layers
     // moved to the premium plugin only: the granular shifter's
     // inherent 16-64 ms lag + an un-ear-locked drive placeholder made them
-    // unshippable here (they were also the only latency reporter — the free
-    // plugin is now unconditionally zero-latency again). v0.2.0 sessions
-    // load fine; their hioct_*/hih_* nodes are simply ignored.
+    // unshippable here (they were also the only latency reporter). v0.2.0
+    // sessions load fine; their hioct_*/hih_* nodes are simply ignored.
+    // v1.0: the shifter returns as the opt-in GUITAR mode (octave DOWN this
+    // time — causal, and the only latency reporter: zero-latency with the
+    // mode off).
     static constexpr int NUM_CH = 8;
     struct ChanDef { const char* id; const char* name; bool isFX; bool isRoom; float defGainDb; bool defMute; };
     static const std::array<ChanDef, NUM_CH> channels;
@@ -95,6 +100,13 @@ public:
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
+    // GUITAR mode latency reporting: the shifter is the only latency source,
+    // reported only while engaged. setLatencySamples must not be called on the
+    // audio thread, so the param listener bounces through an AsyncUpdater.
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { refreshLatency(); }
+    void refreshLatency();
+
     double sr = 48000.0;
     int numOut = 2;
 
@@ -111,6 +123,7 @@ private:
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pGlue    = nullptr;
     std::atomic<float>* pAnalyzer = nullptr;  // spectrum display feed on/off (CPU saver)
+    std::atomic<float>* pGuitarMode = nullptr; // octave-down front end (play a guitar, get a bass)
     std::atomic<float>* pDiGain  = nullptr;    // DI blend strip (raw input, pre input-gain)
     std::atomic<float>* pDiMute  = nullptr;
     std::atomic<float>* pDiSolo  = nullptr;
@@ -137,6 +150,16 @@ private:
     // DI reference A/B (see setDiReference) — smoothed so toggling never clicks
     std::atomic<bool> abDi { false };
     float abXf = 0.0f, abCoef = 0.0f;
+
+    // GUITAR mode: octave-down granular shifter ahead of the whole chain.
+    // rawIn keeps the un-shifted input for the A/B reference; shiftBuf is the
+    // shifter output; gmXf crossfades engage/disengage (same 10 ms law as abXf).
+    // The shifter is fully bypassed (not run-and-discarded) when off — the
+    // byte-identity contract for every existing render depends on that.
+    OctaveShifter shifter;
+    juce::AudioBuffer<float> rawIn, shiftBuf;
+    float gmXf = 0.0f, gmCoef = 0.0f;
+    bool  gmWasActive = false;
 
     // block-rate gain ramps (zipper-noise fix): previous block's effective values,
     // snapped (not ramped) on the first block after prepare

@@ -226,16 +226,19 @@ static int runFnv()
     const double sr = 48000.0; const int block = 512;
     const auto sig = synthBassDI (sr, 6.0);
 
-    struct Cfg { const char* name; bool fuzz; bool dist; const char* solo; bool unmuteSolo; };
+    struct Cfg { const char* name; bool fuzz; bool dist; const char* solo; bool unmuteSolo; bool guitar; };
     const Cfg cfgs[] = {
-        { "default (fresh instance)   ", false, false, nullptr,   false },
-        { "fuzz on x3                 ", true,  false, nullptr,   false },
-        { "fuzz on, solo lofx57       ", true,  false, "lofx57",  false },
-        { "fuzz on, solo lofx421      ", true,  false, "lofx421", false },
-        { "fuzz on, solo lofxtwt      ", true,  false, "lofxtwt", false },
+        { "default (fresh instance)   ", false, false, nullptr,   false, false },
+        { "fuzz on x3                 ", true,  false, nullptr,   false, false },
+        { "fuzz on, solo lofx57       ", true,  false, "lofx57",  false, false },
+        { "fuzz on, solo lofx421      ", true,  false, "lofx421", false, false },
+        { "fuzz on, solo lofxtwt      ", true,  false, "lofxtwt", false, false },
         // v0.2.0 additions (new fingerprints, recorded not inherited)
-        { "DIST on x3                 ", true,  true,  nullptr,   false },
-        { "DIST on, solo lofx57       ", true,  true,  "lofx57",  false },
+        { "DIST on x3                 ", true,  true,  nullptr,   false, false },
+        { "DIST on, solo lofx57       ", true,  true,  "lofx57",  false, false },
+        // v1.0 addition: GUITAR mode (octave-down front end). New sound by
+        // design; this fingerprint is the determinism gate for the shifter.
+        { "GUITAR mode, default stack ", false, false, nullptr,   false, true  },
     };
     std::printf ("render fingerprints (FNV-1a, 6s synth DI, 48k/512) + K-weighted loudness\n");
     for (const auto& c : cfgs)
@@ -253,6 +256,7 @@ static int runFnv()
             setParam (*p, juce::String (c.solo) + "_solo", 1.0f);
             if (c.unmuteSolo) setParam (*p, juce::String (c.solo) + "_mute", 0.0f);
         }
+        if (c.guitar) setParam (*p, "guitar_mode", 1.0f);
         const auto h = renderChecksum (*p, sig, block);
         auto p2 = makeProc (sr, block);
         setParam (*p2, "analyzer", 0.0f);
@@ -263,6 +267,7 @@ static int runFnv()
             setParam (*p2, juce::String (c.solo) + "_solo", 1.0f);
             if (c.unmuteSolo) setParam (*p2, juce::String (c.solo) + "_mute", 0.0f);
         }
+        if (c.guitar) setParam (*p2, "guitar_mode", 1.0f);
         const double lk = renderLoudness (*p2, sig, sr, block, 1.0);
         std::printf ("  %s %016llx  %7.2f dB\n", c.name, (unsigned long long) h, lk);
     }
