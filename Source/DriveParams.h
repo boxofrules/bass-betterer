@@ -12,8 +12,8 @@
 //          asset pack (ir/drive_fits.bin) alongside the impulse responses —
 //          the numbers are the product, same policy as the IRs.
 //
-// Strip slots: 0..2 = LOW FX 57 / 421 / TWEETER. (v0.2.1: the HI CRUNCH /
-// HI AIR slots left with the HI strips — premium only.)
+// Strip slots: 0..2 = LOW FX 57 / 421 / TWEETER. (v0.2.1: the octave-layer
+// slots left with those strips — premium only.)
 namespace drive
 {
 constexpr int NUM_PARAMS = 10;
@@ -73,7 +73,7 @@ inline constexpr std::array<Params, NUM_DRIVE_STRIPS> FUZZ { {
 // Per-character loudness adjusts ON TOP of the strip locks' levelDb
 // (measured with `bor-bench cal`). FUZZ is 0.0 BY CONTRACT — byte-identity
 // with every earlier release. The DIST trims were re-measured for v0.2.1
-// when the DIST drive path gained the Dual Terror blend cab (v0.2.0 values,
+// when the DIST drive path gained its own blend cab (v0.2.0 values,
 // measured through the H1 fuzz cab: 4.32 / -0.33 / -5.62).
 inline constexpr std::array<float, NUM_DRIVE_STRIPS> FUZZ_TRIM_DB { { 0.0f, 0.0f, 0.0f } };
 inline constexpr std::array<float, NUM_DRIVE_STRIPS> DIST_TRIM_DB { { 5.64f, 1.33f, -5.79f } };
@@ -81,8 +81,8 @@ inline constexpr std::array<float, NUM_DRIVE_STRIPS> DIST_TRIM_DB { { 5.64f, 1.3
 // DIST — the fitted distortion character. Values arrive at runtime from the
 // encrypted asset pack (ir/drive_fits.bin, embedded as BinaryData like the
 // IRs): 'B''B''F''1' + 3 rows x 10 float32 LE. The pack format is shared
-// with the HI-capable premium build: row 0 is the LOW-shared character; the
-// two HI rows are ignored here (v0.2.1: no HI strips). Until/unless loadFits
+// with the premium build: row 0 is the LOW-shared character; the two
+// premium-only rows are ignored here (v0.2.1: no octave strips). Until/unless loadFits
 // succeeds, DIST falls back to the FUZZ rows so a build with a malformed
 // pack still makes sound instead of silence.
 inline std::array<Params, NUM_DRIVE_STRIPS> DIST = FUZZ;

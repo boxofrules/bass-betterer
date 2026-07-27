@@ -11,9 +11,9 @@
 class BoRBassEnhancerProcessor : public juce::AudioProcessor
 {
 public:
-    // v0.2.1: back to the 8 v0.1.x strips. The v0.2.0 HI CRUNCH / HI AIR
-    // octave layers moved to the premium plugin only: the granular shifter's
-    // inherent 16-64 ms lag + un-ear-locked JB-2 drive placeholder made them
+    // v0.2.1: back to the 8 v0.1.x strips. The v0.2.0 octave-up layers
+    // moved to the premium plugin only: the granular shifter's
+    // inherent 16-64 ms lag + an un-ear-locked drive placeholder made them
     // unshippable here (they were also the only latency reporter — the free
     // plugin is now unconditionally zero-latency again). v0.2.0 sessions
     // load fine; their hioct_*/hih_* nodes are simply ignored.
@@ -100,7 +100,7 @@ private:
 
     std::array<juce::dsp::Convolution, NUM_CH> convs;      // clean/room voicing IR per channel
     std::array<juce::dsp::Convolution, 3> fuzzConvs;       // H1 cab IR for the FUZZ drive path
-    std::array<juce::dsp::Convolution, 3> distConvs;       // Dual Terror BLEND cab for the DIST drive path
+    std::array<juce::dsp::Convolution, 3> distConvs;       // blend cab for the DIST drive path
     std::array<FuzzChain, 3> fuzz;  // drive chains (driveSlotFor: LO FX x3)
     juce::dsp::Compressor<float> glueComp;
 
@@ -144,7 +144,7 @@ private:
     float smDiLg = 0.0f, smDiRg = 0.0f, smInG = 1.0f, smOutG = 1.0f, smMakeup = 1.0f;
     bool  smSnap = true;
 
-    // An FX strip's three convs (clean voicing / FUZZ H1 cab / DIST Terror
+    // An FX strip's three convs (clean voicing / FUZZ H1 cab / DIST
     // blend) share one signal path: the idle ones hold stale FIFO state, so
     // the conv being switched TO is reset on any drive-path change (drive
     // toggle OR the TYPE key while engaged).

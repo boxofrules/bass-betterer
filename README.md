@@ -15,7 +15,7 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 ## What's new in 0.2.x
 
-- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, the Dual Terror drive voice: the same drive through the blended Terror rig captures. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
+- **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a second amp character: the same drive through a blended rig capture. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
 - **New presets** — Dist Stack joins the bank; Dirt Duck is now Dirt Wall.
 - **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
 - **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
