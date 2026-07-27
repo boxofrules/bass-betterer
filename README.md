@@ -23,9 +23,9 @@ Out of beta. Two headline features and a second plugin:
 
 ## Bass Better-Router (multi-output)
 
-The Router is an *instrument* build of the engine: it takes no insert input, listens on its **side-chain / key input**, and exposes the main **Mix** plus 9 stereo stem outputs — one per strip (SUB, the two LOW CLEANs, the three LOW FX mics, both ROOMs) and the DI blend. Stems follow each strip's fader/pan/phase/mute/solo and are tapped **before** the glue compressor and OUTPUT gain (those shape only the Mix bus).
+The Router is an *instrument* build of the engine, modelled directly on Ultrabeat's multi-output workflow: it takes no insert input, listens on its **side-chain / key input**, and is **multi-output only**. Outputs: the stereo **Mix**, then a **mono stem per voicing** (SUB, the two LOW CLEANs, 57, 421, TWEETER — mono on purpose: pan them on their Logic channel strips, so the Router shows no pan pots on those layers), **stereo stems for the two ROOMs**, and a **mono DI** stem. Stems follow each strip's fader/phase/mute/solo and are tapped **before** the glue compressor and OUTPUT gain (those shape only the Mix bus).
 
-**Logic Pro:** create a Software Instrument track → instrument slot → *AU Instruments → Box of Rules → Bass Better-Router* → choose the **Multi Output** configuration. In the plugin header, set **Side Chain** to the audio track or bus carrying your DI. In the Mixer, click the **+** button on the instrument channel strip to spawn aux strips — each one carries one stem, in strip order. The plain "Stereo" configuration works too (Mix only).
+**Logic Pro:** create a Software Instrument track → instrument slot → *AU Instruments → Box of Rules → Bass Better-Router* (it only offers the Multi Output configuration). In the plugin header, set **Side Chain** to the audio track or bus carrying your DI. In the Mixer, click the **−/+** at the bottom of the instrument channel strip to spawn aux strips — each carries one stem, in strip order, exactly like Ultrabeat.
 
 **Pro Tools:** insert Bass Better-Router on a (stereo) Instrument track, set the plugin's **key input** to the bus carrying your DI (key inputs are mono — the engine is mono-in anyway), then create Aux tracks whose inputs are the plugin's output stems.
 
