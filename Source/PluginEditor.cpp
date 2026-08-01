@@ -907,10 +907,11 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // redirect hop needed. The site link carries utm for GA4 attribution.
         {
             const std::pair<juce::HyperlinkButton*, const char*> socials[] =
-                { { &igLink, "instagram" }, { &ttLink, "tiktok" }, { &siteLink, "site" } };
+                { { &igLink, "instagram" }, { &ttLink, "tiktok" }, { &ytLink, "youtube" },
+                  { &spLink, "spotify" }, { &amLink, "apple-music" }, { &siteLink, "site" } };
             for (const auto& [l, tag] : socials)
             {
-                l->setColour (juce::HyperlinkButton::textColourId, bor::mute2);
+                l->setColour (juce::HyperlinkButton::textColourId, bor::accent);
                 l->setFont (bor::mono (10.0f, true), false, juce::Justification::centred);
                 l->onClick = [t = juce::String (tag)] { bbeStats::send ("link_click", { { "target", t } }); };
                 addAndMakeVisible (*l);
@@ -999,6 +1000,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         freq->onBg = a;
         sys->onBg  = a;
         logo->setAccent (a);
+        for (auto* l : { &igLink, &ttLink, &ytLink, &spLink, &amLink, &siteLink })
+            l->setColour (juce::HyperlinkButton::textColourId, a);
         repaint();
     }
 
@@ -1399,13 +1402,15 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         lagLbl.setBounds (padX, getHeight() - 30, 420, 18);   // footer, bottom-left
 
-        // social links, footer bottom-right
+        // social links, footer bottom-right (laid right-to-left)
         int sx = getWidth() - padX;
-        const std::pair<juce::HyperlinkButton*, int> links[] = { { &siteLink, 118 }, { &ttLink, 56 }, { &igLink, 84 } };
+        const std::pair<juce::HyperlinkButton*, int> links[] =
+            { { &siteLink, 112 }, { &amLink, 86 }, { &spLink, 62 },
+              { &ytLink, 62 }, { &ttLink, 52 }, { &igLink, 74 } };
         for (auto& [l, w] : links)
         {
             l->setBounds (sx - w, getHeight() - 30, w, 18);
-            sx -= w + 14;
+            sx -= w + 10;
         }
 
         footRuleY = r.getY();
@@ -1435,6 +1440,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     juce::Array<bbe::Strip*> hideInSimple;               // DI + room strips
     juce::HyperlinkButton igLink   { "INSTAGRAM",      juce::URL ("https://www.instagram.com/boxofrules/") };
     juce::HyperlinkButton ttLink   { "TIKTOK",         juce::URL ("https://www.tiktok.com/@boxofrules") };
+    juce::HyperlinkButton ytLink   { "YOUTUBE",        juce::URL ("https://www.youtube.com/channel/UCorxaWgCBTGR5z7A-Njq28A") };
+    juce::HyperlinkButton spLink   { "SPOTIFY",        juce::URL ("https://open.spotify.com/artist/65zSav74IPYqtdPjdXkbSt") };
+    juce::HyperlinkButton amLink   { "APPLE MUSIC",    juce::URL ("https://music.apple.com/au/artist/box-of-rules/1824671490") };
     juce::HyperlinkButton siteLink { "BOXOFRULES.COM", juce::URL ("https://boxofrules.com/?utm_source=bass-betterer&utm_medium=plugin") };
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
