@@ -141,7 +141,14 @@ private:
     // two-pass render buffers
     juce::AudioBuffer<float> monoIn, dryIn, work, outBus; // dryIn = original DI; outBus 2-ch
     juce::AudioBuffer<float> layerBuf;                     // NUM_CH mono layers (post fuzz/conv)
-    juce::HeapBlock<float>   voiceMono;                    // voicing sum that feeds the rooms
+    juce::HeapBlock<float>   roomFeed;                     // per-room sum of the selected voicing layers
+    std::array<std::array<std::atomic<float>*, 6>, 2> pRoomSrc {};   // [room][voicing] feed toggles
+
+    // master EQ (post glue): 4 bands x stereo, skipped when every dial is neutral
+    std::array<std::atomic<float>*, 4> pEq {};
+    std::array<std::array<juce::dsp::IIR::Filter<float>, 2>, 4> eqF;
+    std::array<float, 4> eqCur { 1.0e9f, 1.0e9f, 1.0e9f, 1.0e9f };
+    bool eqWasActive = false;
 
     // spectrum analyzer fifos (mono -> editor FFT): [0] processed output, [1] raw DI
     std::array<juce::AbstractFifo, 2> analyzerFifo { juce::AbstractFifo { 1 << 14 },

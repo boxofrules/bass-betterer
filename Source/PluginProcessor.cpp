@@ -7,14 +7,17 @@
 // isRoom, default gain (dB), default mute.
 const std::array<BoRBassEnhancerProcessor::ChanDef, BoRBassEnhancerProcessor::NUM_CH>
 BoRBassEnhancerProcessor::channels = {{
-    { "sub",     "SUB",                false, false,   0.0f, false },
-    { "lowcln1", "LOW CLEAN BAND 1",   false, false,  -2.0f, false },
-    { "lowcln2", "LOW CLEAN BAND 2",   false, false,  -5.0f, false },
+    // v1.0 display names dropped the legacy "LOW" prefix (the premium engine's
+    // HI layers never shipped here) and name the clean bands by speaker size.
+    // The id (param prefix) is the compatibility surface — NEVER rename ids.
+    { "sub",     "SUB",         false, false,   0.0f, false },
+    { "lowcln1", "CLEAN 15\"",  false, false,  -2.0f, false },
+    { "lowcln2", "CLEAN 12\"",  false, false,  -5.0f, false },
     // FX defaults sit |fuzz trim| above the old -4/-8/-14 so the shipped fuzz-on
     // tone is unchanged now the fuzz path is loudness-matched to clean (see below)
-    { "lofx57",  "LOW FX 57",          true,  false,   7.2f, false },
-    { "lofx421", "LOW FX 421",         true,  false,   8.1f, false },
-    { "lofxtwt", "LOW FX TWEETER",     true,  false,  -2.6f, false },
+    { "lofx57",  "FX 57",       true,  false,   7.2f, false },
+    { "lofx421", "FX 421",      true,  false,   8.1f, false },
+    { "lofxtwt", "FX TWEETER",  true,  false,  -2.6f, false },
     // Rooms ship unmuted but at the fader floor (-60 dB = silent in the sum), so
     // bringing a room in is one fader move, not unmute-then-raise. Default tone is
     // unchanged. (Producer feedback: "1 click to use them, rather than 2.")
@@ -96,6 +99,11 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pGlue     = P ("glue");
     pDriveRel     = P ("drive_rel");
     pDriveSustain = P ("drive_sustain");
+    for (int r = 0; r < 2; ++r)
+        for (int v = 0; v < 6; ++v)
+            pRoomSrc[(size_t) r][(size_t) v] =
+                P (juce::String (channels[(size_t) (6 + r)].id) + "_src_" + channels[(size_t) v].id);
+    { int b = 0; for (auto* id : { "eq_low", "eq_lomid", "eq_himid", "eq_high" }) pEq[(size_t) b++] = P (id); }
     pAnalyzer = P ("analyzer");
     pGuitarMode = P ("guitar_mode");
     apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
@@ -157,6 +165,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         // other factory presets that explicitly set _fuzz are unaffected;
         // migrateState()'s "missing node means engaged" fallback stays true since
         // it only interprets pre-stateVersion-2 XML.
+        if (ch.isRoom)
+        {
+            // v1.0: per-room source select — which voicing layers feed this
+            // room's mono sum. All-on (the default) is the classic full-stack
+            // feed, bit-identical to pre-v1 renders.
+            for (int v = 0; v < 6; ++v)
+                layout.add (std::make_unique<AudioParameterBool> (
+                    ParameterID { id + "_src_" + channels[(size_t) v].id, 1 },
+                    nm + " Feed " + channels[(size_t) v].name, true));
+        }
         if (ch.isFX)
         {
             layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_fuzz", 1 }, nm + " Drive", false));
@@ -194,6 +212,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         ParameterID { "drive_sustain", 1 }, "Fuzz Sustain",
         NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
         AudioParameterFloatAttributes().withLabel ("%")));
+    // v1.0: master EQ column (post glue, pre output gain). All dials at 0 =
+    // the stage is skipped entirely (no CPU, byte-identical to pre-EQ renders).
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "eq_low", 1 }, "EQ Low",
+        NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "eq_lomid", 1 }, "EQ Low Mid",
+        NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "eq_himid", 1 }, "EQ High Mid",
+        NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "eq_high", 1 }, "EQ High",
+        NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
     // spectrum analyzer feed on/off (turn off to save CPU)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "analyzer", 1 }, "Analyzer", true));
     // v1.0: GUITAR mode — the whole chain hears the input an octave down
@@ -282,7 +314,13 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     work.setSize   (1, samplesPerBlock);
     outBus.setSize (2, samplesPerBlock);
     layerBuf.setSize (NUM_CH, samplesPerBlock);
-    voiceMono.allocate ((size_t) samplesPerBlock, true);
+    roomFeed.allocate ((size_t) samplesPerBlock, true);
+
+    // master EQ: stereo pair per band; sentinel forces a redesign at this rate
+    for (auto& band : eqF)
+        for (auto& f : band) { f.prepare (monoSpec); f.reset(); }
+    eqCur.fill (1.0e9f);
+    eqWasActive = false;
 
     // GUITAR mode: octave-down shifter + raw/shifted scratch. The engage
     // crossfade snaps to the saved state (no fade-in on session load).
@@ -446,8 +484,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const bool  diActive = (pDiMute->load() <= 0.5f) && (! anySolo || pDiSolo->load() > 0.5f);
     const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load(), -60.0f) : 0.0f;
 
-    // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf; build room feed ----
-    juce::FloatVectorOperations::clear (voiceMono, n);
+    // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf ----
 
     auto renderLayer = [&] (int c, const float* src)
     {
@@ -514,11 +551,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     };
 
     for (int c = 0; c < 6; ++c)
-    {
         renderLayer (c, mono);
-        const float* lc = layerBuf.getReadPointer (c);
-        for (int s = 0; s < n; ++s) voiceMono[(size_t) s] += lc[s];   // rooms hear the voicing sum
-    }
     for (int c = 6; c < NUM_CH; ++c)
     {
         // a fully silent room (the default state) skips its convolution — the two
@@ -532,7 +565,14 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             continue;
         }
         if (idle) { convs[(size_t) c].reset(); idle = false; }
-        renderLayer (c, voiceMono.getData());
+        // v1.0: per-room source select — sum only the toggled voicing layers.
+        // Same 0..5 add order as the old shared voicing sum, so the all-on
+        // default is bit-identical to pre-v1 renders.
+        juce::FloatVectorOperations::clear (roomFeed, n);
+        for (int v = 0; v < 6; ++v)
+            if (pRoomSrc[(size_t) (c - 6)][(size_t) v]->load() > 0.5f)
+                juce::FloatVectorOperations::add (roomFeed, layerBuf.getReadPointer (v), n);
+        renderLayer (c, roomFeed);
     }
 
     // (v0.2.0: the LO FX sidechain duck left the free plugin — premium
@@ -602,6 +642,47 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smMakeup != 1.0f || makeup != 1.0f)
         outBus.applyGainRamp (0, n, smMakeup, makeup);
     smMakeup = makeup;
+
+    // --- master EQ (post glue, pre output): four dials, skipped when neutral ---
+    {
+        bool active = false, moved = false;
+        for (int b = 0; b < 4; ++b)
+        {
+            const float db = pEq[(size_t) b]->load();
+            if (! juce::exactlyEqual (db, eqCur[(size_t) b])) moved = true;
+            if (std::abs (db) > 0.001f) active = true;
+        }
+        if (active)
+        {
+            if (moved)
+            {
+                using C = juce::dsp::IIR::Coefficients<float>;
+                auto g   = [] (float db) { return juce::Decibels::decibelsToGain (db); };
+                auto set = [this] (int b, C::Ptr c) { eqF[(size_t) b][0].coefficients = c;
+                                                      eqF[(size_t) b][1].coefficients = c; };
+                for (int b = 0; b < 4; ++b) eqCur[(size_t) b] = pEq[(size_t) b]->load();
+                set (0, C::makeLowShelf   (sr,   90.0f, 0.71f, g (eqCur[0])));
+                set (1, C::makePeakFilter (sr,  250.0f, 1.0f,  g (eqCur[1])));
+                set (2, C::makePeakFilter (sr,  900.0f, 0.9f,  g (eqCur[2])));
+                set (3, C::makeHighShelf  (sr, juce::jmin (3200.0f, (float) sr * 0.45f), 0.71f, g (eqCur[3])));
+            }
+            eqWasActive = true;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                float* d = outBus.getWritePointer (ch);
+                for (auto& band : eqF)
+                {
+                    auto& f = band[(size_t) ch];
+                    for (int s = 0; s < n; ++s) d[s] = f.processSample (d[s]);
+                }
+            }
+        }
+        else if (eqWasActive)   // dials returned to neutral: drop the stale state
+        {
+            for (auto& band : eqF) for (auto& f : band) f.reset();
+            eqWasActive = false;
+        }
+    }
 
     // --- output gain (ramped) + write to the host buffer (mono or stereo) ---
     const float outG = juce::Decibels::decibelsToGain (pOutGain->load());

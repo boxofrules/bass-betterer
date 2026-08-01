@@ -17,15 +17,19 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 Out of beta.
 
-- **GUITAR mode** — the new GUITAR key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. Plugin formats only (AU/VST3/AAX): the Standalone app doesn't carry the GUITAR key.
-- All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ remains byte-for-byte identical to every release before it.
+- **GUITAR MODE** — the new GUITAR MODE key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. Plugin formats only (AU/VST3/AAX): the Standalone app doesn't carry the GUITAR MODE key.
+- **RELEASE and SUSTAIN dials** — the drive's envelope, opened up. The fuzz used to hug your note's decay so tightly it could read as a sidechain-style duck after each pluck; the new RELEASE dial (default 2.5 s, tuned by ear on real stems) lets the drive hang on and bloom instead. SUSTAIN adds upward compression inside the drive for even more hold. Both live left of INPUT and light up when any drive is engaged. Old sessions keep their exact old sound automatically.
+- **Room FEED selects** — each ROOM strip now has a column of six keys choosing which layers feed that room (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them. All-on is the classic feed, so existing sessions are untouched.
+- **Master EQ** — a four-dial EQ column (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE for final shaping without leaving the plugin. At zero it is truly out of the circuit.
+- **Cleaner strip names** — the legacy "LOW" prefix is gone: the clean bands are now CLEAN 15" and CLEAN 12" (named for the speakers they lean on) and the drive strips are FX 57, FX 421 and FX TWEETER. Names only — sessions, presets and automation are untouched.
+- All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ at the stock RELEASE remains byte-for-byte identical to every release before it.
 
 ## What's new in 0.2.x
 
 - **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a second amp character: the same drive through a blended rig capture. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
 - **New presets** — Dist Stack joins the bank; Dirt Duck is now Dirt Wall.
 - **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
-- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
+- **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the FX strips, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
 - **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
 - **AAX (Pro Tools) builds, now signed** — the AAX target builds and is signed with the PACE tools, and loads in retail Pro Tools. Not in the Release downloads yet: the shipped build needs to cover Apple silicon and Intel both, which lands with a future release. See [Building the AAX target](#building-the-aax-target).
 
@@ -37,9 +41,9 @@ A real bass record is never one signal. It is a foundation you feel, a body you 
 | --- | --- |
 | DI | The original dry DI tone, blended back in. Muted by default. Carries the A/B button. |
 | SUB | The foundation. Always on, dead centre. |
-| LOW CLEAN | Body and warmth. |
-| LOW FX | Grit and aggression, with an engageable drive (FUZZ or DIST). |
-| ROOM | Air and space around the whole thing. |
+| CLEAN 15" / CLEAN 12" | Body and warmth, named for the speakers they lean on. |
+| FX 57 / FX 421 / FX TWEETER | Grit and aggression, with an engageable drive (FUZZ or DIST). |
+| ROOM NEAR / ROOM FAR | Air and space around the whole thing, each with FEED keys choosing which layers it hears. |
 
 Every layer is a channel strip with the same controls.
 
@@ -52,13 +56,17 @@ Every layer is a channel strip with the same controls.
 | Ø | Phase (polarity) invert. |
 | FUZZ / DIST | Engage the drive; the key reads the active character. Drive-capable layers only. |
 | TYPE | Switch the drive character between FUZZ and DIST. |
+| FEED (SUB · 15" · 12" · 57 · 421 · TW) | ROOM strips only: choose which layers feed that room. All-on is the classic full-stack feed. |
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
 
 | Master | What it does |
 | --- | --- |
 | INPUT | Input gain. Also drives the fuzz, like a pedal. |
+| RELEASE | How long the drive's envelope hangs on after each note (all drive strips share it). Short = tight and percussive; long (the default) = blooming sustain. |
+| SUSTAIN | Upward compression inside the drive — quieter tails come back louder. 0 is the classic envelope. |
 | GLUE | Sums the layers into one cohesive instrument. |
+| EQ (LOW / LO MID / HI MID / HIGH) | Four-dial master EQ after GLUE, ±12 dB per band. At zero it is completely out of the signal path. |
 | OUTPUT | Output gain. |
 | FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |
 | A/B | On the DI strip: audition the raw DI against the processed sound (click-free, never saved with the session). |
@@ -72,7 +80,7 @@ In ALL view the spectrum draws two curves: the raw **DI** in grey and the proces
 
 The honest engineering answers, for those who asked.
 
-**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase → stereo sum → GLUE → OUTPUT gain`. The ROOM layers are fed the blended sum of the voicing layers rather than the raw DI, the way a room hears a rig. The DI strip taps the input before INPUT gain, so it stays truly dry.
+**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase → stereo sum → GLUE → master EQ → OUTPUT gain`. The ROOM layers are fed a blended sum of the voicing layers rather than the raw DI, the way a room hears a rig — and each room's FEED keys choose which layers are in that blend. The DI strip taps the input before INPUT gain, so it stays truly dry.
 
 **What is each layer, really?** A measured impulse response of a real studio capture chain (instrument, amplification, transducer, and desk), one per frequency role, convolved in real time. The capture chain itself is the proprietary part and stays undisclosed.
 
@@ -80,7 +88,9 @@ The honest engineering answers, for those who asked.
 
 **What exactly is GLUE?** One soft stereo bus compressor on the summed mix — not a chain of them. The knob sweeps threshold from −3 to −24 dB and ratio from 1:1 to 6:1 (12 ms attack, 160 ms release) with gentle automatic make-up. Everything you hear, including the DI strip, passes through it.
 
-**Is the fuzz louder than clean?** Not any more. As of v0.1.4 the fuzz path is loudness-matched (K-weighted) to the clean voicing on each LOW FX strip, so toggling FUZZ changes character, not volume. Old saved sessions are migrated automatically so existing mixes don't shift.
+**Is the fuzz louder than clean?** Not any more. As of v0.1.4 the fuzz path is loudness-matched (K-weighted) to the clean voicing on each FX strip, so toggling FUZZ changes character, not volume. Old saved sessions are migrated automatically so existing mixes don't shift.
+
+**Can I MIDI-map the controls?** Yes. Every fader, dial and key is a host-automatable plugin parameter, so anything your DAW can learn, it can map — in Logic via Smart Controls / controller assignments (learn mode), and the same idea in Live, Cubase, Reaper and friends. Nothing to configure on the plugin side.
 
 **Latency?** Zero samples reported to the host, and genuinely zero-latency convolution (no lookahead, no FFT block delay on the direct path). Check SYS for the live numbers.
 
@@ -96,7 +106,7 @@ The honest engineering answers, for those who asked.
 | --- | --- |
 | DI | Direct Input — the clean, dry signal straight from your bass (via an audio interface or DI box), before any amp or effect. This plugin's whole job is turning that into a finished sound. |
 | IR / convolution | An impulse response is a sonic fingerprint of a real signal chain. Convolution applies that fingerprint to your signal in real time, so it takes on the captured character. |
-| Fuzz | Heavy, saturated distortion — the aggressive layer of the sound. Here it lives on the LOW FX strips only, leaving the foundation clean underneath. |
+| Fuzz | Heavy, saturated distortion — the aggressive layer of the sound. Here it lives on the FX strips only, leaving the foundation clean underneath. |
 | Glue | Gentle compression applied to the summed mix so the parallel layers move together and read as one instrument. |
 | Phase invert (Ø) | Flips a layer's waveform upside down. If two layers cancel each other and sound thin, flipping one often locks them back in. |
 | Mono fold-down | How the sound survives on a single speaker (phones, club PA subs). The lows here are mono by design, so it does. |

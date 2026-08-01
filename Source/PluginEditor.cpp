@@ -232,8 +232,8 @@ struct Knob : public juce::Component
 struct Strip : public juce::Component
 {
     Strip (BoRBassEnhancerProcessor& p, const juce::String& prefix, const juce::String& nm,
-           bool isFX_, bool hasPan_, bool hasAB_, FaderLnf& flnf, KnobLnf& klnf)
-        : isFX (isFX_), hasPan (hasPan_), hasAB (hasAB_), chName (nm)
+           bool isFX_, bool isRoom_, bool hasPan_, bool hasAB_, FaderLnf& flnf, KnobLnf& klnf)
+        : isFX (isFX_), isRoom (isRoom_), hasPan (hasPan_), hasAB (hasAB_), chName (nm)
     {
         gain.setSliderStyle (juce::Slider::LinearVertical);
         gain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -290,6 +290,26 @@ struct Strip : public juce::Component
         }
         if (hasAB)   // DI strip: A/B audition lives where pan would (owner wires onClick)
             ab = makeTog ("A/B", bor::amber, bor::ink, "Audition the raw DI against the processed sound");
+
+        if (isRoom)
+        {
+            // v1.0: room source select — which voicing layers feed this room.
+            // (Room reads boomy? Drop SUB out of it.) All-on = classic feed.
+            static const std::array<std::array<const char*, 3>, 6> srcs {{
+                { "sub",     "SUB",  "SUB" },
+                { "lowcln1", "15\"", "CLEAN 15\"" },
+                { "lowcln2", "12\"", "CLEAN 12\"" },
+                { "lofx57",  "57",   "FX 57" },
+                { "lofx421", "421",  "FX 421" },
+                { "lofxtwt", "TW",   "FX TWEETER" },
+            }};
+            for (size_t v = 0; v < 6; ++v)
+            {
+                srcTogs[v] = makeTog (srcs[v][1], bor::bone, bor::ink,
+                                      juce::String ("Feed ") + srcs[v][2] + " into this room");
+                srcAtts[v] = std::make_unique<BA> (p.apvts, prefix + "_src_" + srcs[v][0], *srcTogs[v]);
+            }
+        }
         refreshMuted();
     }
 
@@ -385,13 +405,23 @@ struct Strip : public juce::Component
         readoutRect = r.removeFromBottom (22);
         r.removeFromBottom (8);
 
+        if (isRoom)   // feed-select column rides the fader area's left margin
+        {
+            auto col = r.removeFromLeft (32);
+            const int th = 17, tg = juce::jmax (2, (col.getHeight() - 6 * th) / 7);
+            int ty = col.getY() + tg;
+            for (auto& t : srcTogs) { t->setBounds (col.getX(), ty, 32, th); ty += th + tg; }
+        }
+
         auto block = r.withSizeKeepingCentre (34 + 8 + 8, r.getHeight());
         gain.setBounds (block.removeFromLeft (34));
         block.removeFromLeft (8);
         meterRect = block.removeFromLeft (8);
     }
 
-    bool isFX, hasPan, hasAB;
+    bool isFX, isRoom, hasPan, hasAB;
+    std::array<std::unique_ptr<SquareButton>, 6> srcTogs;   // room feed selects
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>, 6> srcAtts;
     juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
     juce::String chName;
     juce::Slider gain, pan;
@@ -697,12 +727,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // "move the rooms to the channels at the end"), a pure view-level
         // reorder: channel indices, params and sessions are untouched. SUB
         // has no pan either: the lows stay dead centre.
-        strips.add (new bbe::Strip (proc, "di", "DI", false, false, true, faderLnf, panLnf));
+        strips.add (new bbe::Strip (proc, "di", "DI", false, false, false, true, faderLnf, panLnf));
         for (int k = 0; k < BoRBassEnhancerProcessor::NUM_CH; ++k)
         {
             const int c = displayOrder[(size_t) k];
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
-            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX,
+            strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX, ch.isRoom,
                                         stereo && c != 0, false, faderLnf, panLnf));
         }
         for (auto* s : strips) addAndMakeVisible (s);
@@ -750,6 +780,18 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         relKnob = std::make_unique<bbe::Knob> (proc, "drive_rel",     "RELEASE", 0, knobLnf);
         susKnob = std::make_unique<bbe::Knob> (proc, "drive_sustain", "SUSTAIN", 0, knobLnf);
         addAndMakeVisible (*relKnob); addAndMakeVisible (*susKnob);
+
+        // v1.0: master EQ column (post GLUE, pre OUTPUT in the signal path)
+        setupLbl (eqLbl, "EQ", bor::bone, 11.0f, true, juce::Justification::centredTop);
+        addAndMakeVisible (eqLbl);
+        static const std::array<std::array<const char*, 2>, 4> eqDefs {{
+            { "eq_low", "LOW" }, { "eq_lomid", "LO MID" },
+            { "eq_himid", "HI MID" }, { "eq_high", "HIGH" } }};
+        for (size_t ei = 0; ei < eqDefs.size(); ++ei)
+        {
+            eqKnobs[ei] = std::make_unique<bbe::Knob> (proc, eqDefs[ei][0], eqDefs[ei][1], 1, knobLnf);
+            addAndMakeVisible (*eqKnobs[ei]);
+        }
         int fi = 0;
         for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
             pStripFuzz[(size_t) fi++] = proc.apvts.getRawParameterValue (juce::String (id) + "_fuzz");
@@ -763,8 +805,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // gets no key (and the processor force-bypasses the mode there).
         if (proc.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
         {
-            gtr = std::make_unique<bbe::SquareButton> ("GUITAR", bor::guitarRed, bor::accentOn);
-            gtr->setTooltip ("Guitar mode: pitch the input down an octave — play a guitar, get a bass");
+            gtr = std::make_unique<bbe::SquareButton> ("GUITAR MODE", bor::guitarRed, bor::accentOn);
+            gtr->setTooltip ("GUITAR MODE: pitches your input down a full octave before the whole "
+                             "tone stack — plug in a guitar, get a bass");
             gtr->setClickingTogglesState (false);
             addAndMakeVisible (*gtr);
             if (auto* prm = proc.apvts.getParameter ("guitar_mode"))
@@ -780,7 +823,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             }
         }
 
-        setSize (1180, 784);   // 9 columns (DI + 8 strips)
+        setSize (1264, 784);   // 10 columns (DI + 8 strips + master EQ)
         startTimerHz (30);
     }
 
@@ -1092,7 +1135,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         int linkAnchor = sys->getX();
         if (gtr != nullptr)   // header GUITAR key — absent in the Standalone
         {
-            gtr->setBounds (sys->getX() - 12 - 92, cy - 13, 92, 26);
+            gtr->setBounds (sys->getX() - 12 - 122, cy - 13, 122, 26);
             linkAnchor = gtr->getX();
         }
         updateLink.setBounds (linkAnchor - 12 - 170, cy - 13, 170, 26);
@@ -1103,6 +1146,19 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         auto section = r.removeFromTop (516).withTrimmedLeft (padX).withTrimmedRight (padX);
         section.removeFromTop (20); section.removeFromBottom (22);
+
+        // master EQ column at the far right, strip-header-aligned
+        auto eqCol = section.removeFromRight (84);
+        section.removeFromRight (10);
+        eqLbl.setBounds (eqCol.removeFromTop (28).translated (0, 11));
+        eqCol.removeFromTop (10);
+        const int ekh = (eqCol.getHeight() - 3 * 8) / 4;
+        for (auto& k : eqKnobs)
+        {
+            k->setBounds (eqCol.removeFromTop (ekh));
+            eqCol.removeFromTop (8);
+        }
+
         const int n = strips.size(), gap = 10;
         const int sw = (section.getWidth() - gap * (n - 1)) / n;
         for (int i = 0; i < n; ++i)
@@ -1159,6 +1215,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, relKnob, susKnob;
+    std::array<std::unique_ptr<bbe::Knob>, 4> eqKnobs;
+    juce::Label eqLbl;
     std::array<std::atomic<float>*, 3> pStripFuzz {};
     bool driveDialsOn = true;   // init true so the first refresh always applies the grey
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };
@@ -1191,7 +1249,7 @@ BoRBassEnhancerEditor::BoRBassEnhancerEditor (BoRBassEnhancerProcessor& p)
     // window corner. The panel scales to fit.
     setResizable (true, true);
     setResizeLimits (649, 431, 1534, 1019);              // ~0.55x .. ~1.3x of the design
-    if (auto* c = getConstrainer()) c->setFixedAspectRatio (1180.0 / 784.0);
+    if (auto* c = getConstrainer()) c->setFixedAspectRatio (1264.0 / 784.0);
     setSize (1003, 666);                                 // ~0.85x — comfortable default
 }
 
@@ -1201,7 +1259,7 @@ void BoRBassEnhancerEditor::paint (juce::Graphics& g) { g.fillAll (bor::ink); }
 
 void BoRBassEnhancerEditor::resized()
 {
-    const float dw = 1180.0f, dh = 784.0f;
+    const float dw = 1264.0f, dh = 784.0f;
     const float s  = juce::jmin ((float) getWidth() / dw, (float) getHeight() / dh);
     const float x  = ((float) getWidth()  - dw * s) * 0.5f;
     const float y  = ((float) getHeight() - dh * s) * 0.5f;
