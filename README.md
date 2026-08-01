@@ -69,7 +69,7 @@ Every layer is a channel strip with the same controls.
 | RELEASE | How long the drive's envelope hangs on after each note (all drive strips share it). Short = tight and percussive; long (the default) = blooming sustain. |
 | SUSTAIN | Upward compression inside the drive — quieter tails come back louder. 0 is the classic envelope. |
 | GLUE | Sums the layers into one cohesive instrument. |
-| WIDTH | Stereo image, 0–200 % (mid/side). 100 % is untouched; shown only in stereo, like the pans. Lives between GLUE and OUTPUT. |
+| WIDTH | Stereo spreader, 0–200 %. Above 100 % it generates width from the (mostly mono) stack — a short, low-cut echo of the mid pushed opposite ways — so the sound wraps wider while the mono fold-down stays *exactly* intact and the lows stay centred. Below 100 % narrows any real stereo content; 100 % is untouched. Shown only in stereo; lives between GLUE and OUTPUT. |
 | EQ (LOW / LO MID / HI MID / HIGH) | Four-dial master EQ after GLUE, ±12 dB per band. Click a band's label to choose where its shelf/peak sits (e.g. LO MID at 180, 250, 350 or 500 Hz). At zero gain a band is completely out of the signal path. |
 | OUTPUT | Output gain. |
 | FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |

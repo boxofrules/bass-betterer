@@ -358,6 +358,13 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     layerBuf.setSize (NUM_CH, samplesPerBlock);
     roomFeed.allocate ((size_t) samplesPerBlock, true);
 
+    // WIDTH spreader state (6 ms mid delay, 250 Hz side low-cut)
+    spreadLen = juce::jmax (1, (int) (sampleRate * 0.006));
+    spreadBuf.allocate ((size_t) spreadLen, true);
+    spreadW = 0;
+    spreadLp = 0.0f;
+    spreadLpC = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (float) sampleRate);
+
     // master EQ: stereo pair per band; sentinel forces a redesign at this rate
     for (auto& band : eqF)
         for (auto& f : band) { f.prepare (monoSpec); f.reset(); }
@@ -692,7 +699,13 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         outBus.applyGainRamp (0, n, smMakeup, makeup);
     smMakeup = makeup;
 
-    // --- WIDTH (stereo only): mid/side image scale, skipped at 100 % ---
+    // --- WIDTH (stereo only): spreader, skipped (bit-exact) at 100 % ---
+    // Below 100 % narrows the existing image (mid/side scale). Above 100 % it
+    // SPREADS: the stack is nearly mono by design (lows centred, pans at the
+    // detent), so there is no side to scale up — instead a side signal is
+    // generated from a 6 ms delayed, 250 Hz low-cut copy of the mid, pushed
+    // complementarily (+L / -R). The mono fold-down is therefore EXACTLY the
+    // untouched mid — the generated side cancels — and the lows stay centred.
     if (numOut >= 2)
     {
         const float w = std::round (pWidth->load()) / 100.0f;   // round: skew-roundtrip lesson
@@ -705,7 +718,12 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             {
                 const float ww = smWidth + (w - smWidth) * (float) (s2 + 1) * rampInc;
                 const float m  = 0.5f * (L[s2] + R[s2]);
-                const float sd = 0.5f * (L[s2] - R[s2]) * ww;
+                float sd = 0.5f * (L[s2] - R[s2]) * juce::jmin (ww, 1.0f);
+                spreadBuf[(size_t) spreadW] = m;
+                spreadW = (spreadW + 1) % spreadLen;
+                const float d = spreadBuf[(size_t) spreadW];      // oldest = 6 ms ago
+                spreadLp += spreadLpC * (d - spreadLp);           // one-pole LP; HP = d - LP
+                sd += 0.7f * juce::jmax (0.0f, ww - 1.0f) * (d - spreadLp);
                 L[s2] = m + sd;
                 R[s2] = m - sd;
             }
