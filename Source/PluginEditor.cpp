@@ -235,7 +235,7 @@ struct HexLogo : public juce::Component
 struct Knob : public juce::Component
 {
     Knob (BoRBassEnhancerProcessor& p, const juce::String& pid, const juce::String& cap,
-          int decimals_, KnobLnf& lnf) : decimals (decimals_)
+          int decimals_, KnobLnf& lnf) : decimals (decimals_), lnfRef (&lnf)
     {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setRotaryParameters (juce::degreesToRadians (225.0f), juce::degreesToRadians (495.0f), true);
@@ -263,6 +263,37 @@ struct Knob : public juce::Component
     void refresh() { value.setText (juce::String (slider.getValue(), decimals), juce::dontSendNotification); }
     void mouseUp (const juce::MouseEvent& e) override
     { if (onCaptionClick != nullptr && caption.getBounds().contains (e.getPosition())) onCaptionClick(); }
+
+    // two-tone caption (EQ bands): base stays muted, the variable part draws
+    // in the live accent to read as change-able. Replaces the caption Label.
+    void setMenuCaption (const juce::String& base, const juce::String& variable)
+    {
+        capBase = base; capVar = variable;
+        caption.setVisible (false);   // bounds still anchor the click target
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (capVar.isEmpty()) return;
+        const auto f = bor::mono (11.0f);
+        auto width = [&f] (const juce::String& s)
+        {
+            juce::GlyphArrangement ga;
+            ga.addLineOfText (f, s, 0.0f, 0.0f);
+            return ga.getBoundingBox (0, -1, true).getWidth();
+        };
+        const auto r  = caption.getBounds().toFloat();
+        const float wb = width (capBase + " "), wv = width (capVar);
+        const float x0 = r.getCentreX() - (wb + wv) * 0.5f;
+        g.setFont (f);
+        g.setColour (bor::mute2);
+        g.drawText (capBase, juce::Rectangle<float> (x0, r.getY(), wb, r.getHeight()),
+                    juce::Justification::centredLeft);
+        g.setColour (lnfRef->accent);
+        g.drawText (capVar, juce::Rectangle<float> (x0 + wb, r.getY(), wv, r.getHeight()),
+                    juce::Justification::centredLeft);
+    }
     void resized() override
     {
         auto r = getLocalBounds();
@@ -271,8 +302,10 @@ struct Knob : public juce::Component
         slider.setBounds (r.withSizeKeepingCentre (58, 58));
     }
     int decimals;
+    KnobLnf* lnfRef;
     juce::Slider slider;
     juce::Label caption, value;
+    juce::String capBase, capVar;           // two-tone caption (see setMenuCaption)
     std::unique_ptr<SA> att;
     std::function<void()> onCaptionClick;   // set = the caption is a menu (EQ band freqs)
 };
@@ -874,9 +907,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             auto* kn = eqKnobs[ei].get();
             auto setCap = [kn, cap = juce::String (eqDefs[ei][1])] (const juce::String& choice)
             {
-                kn->caption.setText (cap + " \xc2\xb7 " + choice.replace (" Hz", "")
-                                                                .replace (" kHz", "k"),
-                                     juce::dontSendNotification);
+                kn->setMenuCaption (cap, choice.replace (" Hz", "").replace (" kHz", "k"));
             };
             eqFreqAtts[ei] = std::make_unique<juce::ParameterAttachment> (*prm,
                 [prm, setCap] (float) { setCap (prm->getCurrentChoiceName()); });
