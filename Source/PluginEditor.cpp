@@ -1108,13 +1108,16 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // (no DI/ROOM strips, no EQ column, no RELEASE/SUSTAIN/WIDTH) and
         // re-themes the panel amber. Persisted like freqView ("uiMode").
         smp = std::make_unique<bbe::SquareButton> ("SIMPLE", bor::simpleAmber, bor::ink);
-        smp->setTooltip ("Simple view: just the essential controls. Everything hidden keeps "
-                         "working — presets and sessions still set it all.");
+        smp->setTooltip ("Simple view: just the essential controls. Hidden channels (DI, rooms) "
+                         "are muted while you're here and restored when you leave — only the "
+                         "ones that were audible before. Presets still set every control.");
         smp->setClickingTogglesState (false);
         smp->onClick = [this]
         {
             simpleOn = ! simpleOn;
             proc.apvts.state.setProperty ("uiMode", simpleOn ? "simple" : "expert", nullptr);
+            if (simpleOn) enforceSimpleMutes();   // hidden = silent…
+            else          releaseSimpleMutes();   // …and back, only those unmuted before
             applyMode();
             bbeStats::send ("view_mode_changed", { { "mode", simpleOn ? "simple" : "expert" } });
         };
@@ -1246,8 +1249,39 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         }
     }
 
-    // SIMPLE/EXPERT view: trim what is shown, retheme, relayout. Values of
-    // hidden controls are untouched — presets/sessions still set everything.
+    // SIMPLE mutes what it hides (DI + rooms) so the panel never lies about
+    // what is sounding; the pre-SIMPLE unmute set is remembered in the session
+    // state so leaving restores exactly the strips that were audible before.
+    void enforceSimpleMutes()
+    {
+        juce::StringArray unmuted;
+        for (auto* id : { "di", "roomnear", "roomfar" })
+            if (auto* prm = proc.apvts.getParameter (juce::String (id) + "_mute"))
+            {
+                if (prm->getValue() < 0.5f) unmuted.add (id);
+                prm->beginChangeGesture();
+                prm->setValueNotifyingHost (1.0f);
+                prm->endChangeGesture();
+            }
+        proc.apvts.state.setProperty ("simpleRestoreUnmute", unmuted.joinIntoString (","), nullptr);
+    }
+
+    void releaseSimpleMutes()
+    {
+        const auto list = proc.apvts.state.getProperty ("simpleRestoreUnmute", "").toString();
+        for (auto id : juce::StringArray::fromTokens (list, ",", ""))
+            if (auto* prm = proc.apvts.getParameter (id.trim() + "_mute"))
+            {
+                prm->beginChangeGesture();
+                prm->setValueNotifyingHost (0.0f);
+                prm->endChangeGesture();
+            }
+        proc.apvts.state.removeProperty ("simpleRestoreUnmute", nullptr);
+    }
+
+    // SIMPLE/EXPERT view: trim what is shown, retheme, relayout. Param VALUES
+    // still flow underneath (presets/sessions set everything); the one audio
+    // consequence is the hidden-strip muting above, by design.
     void applyMode()
     {
         for (auto* s : hideInSimple) s->setVisible (! simpleOn);
@@ -1416,17 +1450,20 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             // are not — those report type only (no names, per the contract)
             bbeStats::send ("preset_loaded",
                             { { "type", "factory" }, { "name", proc.getFactoryPresetNames()[sel - 1] } });
+            if (simpleOn) enforceSimpleMutes();   // a preset may unmute hidden strips
         }
         else if (sel >= 100 && sel < 100 + userFiles.size())
         {
             proc.loadUserPresetFile (userFiles[sel - 100]);
             bbeStats::send ("preset_loaded", { { "type", "user" } });
+            if (simpleOn) enforceSimpleMutes();
         }
         else if (sel >= 200 && sel < 200 + artistCount)
         {
             proc.loadArtistPreset (sel - 200);
             bbeStats::send ("preset_loaded",
                             { { "type", "artist" }, { "name", proc.getArtistPresetNames()[sel - 200] } });
+            if (simpleOn) enforceSimpleMutes();
         }
         else if (sel == 1000)
         {

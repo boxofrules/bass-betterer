@@ -184,12 +184,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         if (ch.isRoom)
         {
             // v1.0: per-room source select — which voicing layers feed this
-            // room's mono sum. All-on (the default) is the classic full-stack
-            // feed, bit-identical to pre-v1 renders.
+            // room's mono sum. Default = FX strips only (SUB + cleans OFF:
+            // rooms read boomy with the full stack — James, 2 Aug). All-on is
+            // the classic pre-v1 feed; migrateState() pins it for old
+            // sessions so their rooms render bit-identically.
             for (int v = 0; v < 6; ++v)
                 layout.add (std::make_unique<AudioParameterBool> (
                     ParameterID { id + "_src_" + channels[(size_t) v].id, 1 },
-                    nm + " Feed " + channels[(size_t) v].name, true));
+                    nm + " Feed " + channels[(size_t) v].name, v >= 3));
         }
         if (ch.isFX)
         {
@@ -959,6 +961,15 @@ static void migrateState (juce::XmlElement& xml)
         auto* p = xml.createNewChildElement ("PARAM");
         p->setAttribute ("id", "drive_rel");
         p->setAttribute ("value", 250.0);
+        // the room FEED keys default to FX-only now; a pre-v5 session expects
+        // the classic full-stack feed — pin the three that changed, per room
+        for (auto* room : { "roomnear", "roomfar" })
+            for (auto* v : { "sub", "lowcln1", "lowcln2" })
+            {
+                auto* s = xml.createNewChildElement ("PARAM");
+                s->setAttribute ("id", juce::String (room) + "_src_" + v);
+                s->setAttribute ("value", 1.0);
+            }
         xml.setAttribute ("stateVersion", 5);
     }
 }
@@ -984,8 +995,12 @@ static void stripGuitarMode (juce::XmlElement& xml)
         if (p->getStringAttribute ("id") == "guitar_mode")
         {
             xml.removeChildElement (p, true);
-            return;
+            break;
         }
+    // view state must not ride a shared preset either: a preset is a tone,
+    // not somebody else's SIMPLE/EXPERT choice (or its mute-restore list)
+    xml.removeAttribute ("uiMode");
+    xml.removeAttribute ("simpleRestoreUnmute");
 }
 namespace {
 using PV = std::pair<juce::String, float>;
@@ -1002,7 +1017,7 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
             {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
             {"sub_gain",-2.6f},{"sub_pad",2.0f},
             {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
-            {"roomnear_gain",-29.3f},
+            {"roomnear_gain",-29.3f},{"roomnear_src_sub",1.0f},{"roomnear_src_lowcln1",1.0f},{"roomnear_src_lowcln2",1.0f},
             {"eq_low",1.8f},{"eq_low_freq",1.0f},{"eq_lomid",2.3f},{"eq_lomid_freq",3.0f},
             {"eq_himid",5.5f},{"eq_himid_freq",2.0f},{"eq_high",-0.8f},{"eq_high_freq",3.0f},
             {"out_gain",6.8f} } },
@@ -1013,7 +1028,7 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
             {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
             {"sub_gain",3.0f},{"sub_pad",2.0f},
             {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
-            {"roomnear_gain",-24.8f},
+            {"roomnear_gain",-24.8f},{"roomnear_src_sub",1.0f},{"roomnear_src_lowcln1",1.0f},{"roomnear_src_lowcln2",1.0f},
             {"eq_low",-2.0f},{"eq_low_freq",3.0f},{"eq_lomid",-7.8f},{"eq_lomid_freq",2.0f},
             {"eq_himid",5.3f},{"eq_himid_freq",2.0f},{"eq_high",-1.5f},{"eq_high_freq",0.0f},
             {"out_gain",2.5f} } },
@@ -1036,7 +1051,7 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
             {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
             {"sub_gain",5.3f},{"sub_pad",2.0f},
             {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
-            {"roomnear_gain",-14.3f},
+            {"roomnear_gain",-14.3f},{"roomnear_src_sub",1.0f},{"roomnear_src_lowcln1",1.0f},{"roomnear_src_lowcln2",1.0f},
             {"eq_low",-5.0f},{"eq_low_freq",2.0f},{"eq_lomid",-5.5f},{"eq_lomid_freq",2.0f},
             {"eq_himid",6.5f},{"eq_himid_freq",2.0f},{"eq_high",-1.8f},{"eq_high_freq",0.0f},
             {"out_gain",-11.3f} } },

@@ -29,12 +29,12 @@ Out of beta — and the tone stack is finally *playable*, not just balance-able.
 - **Master EQ** — four dials (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE. Click a band's label to choose where its shelf/peak sits. At zero, truly out of the circuit.
 - **WIDTH** — a stereo spreader (0–100 %). Width is *generated* from the mostly-mono stack with the mono fold-down left mathematically untouched; lows stay centred.
 - **PAD** — every strip's headroom is now yours: −12 dB is the classic reference, 0 dB buys 12 more dB of ceiling when the fader runs out, −30 dB adds room for hot settings.
-- **Room FEED selects** — each ROOM strip chooses which layers feed it (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them.
+- **Room FEED selects** — each ROOM strip chooses which layers feed it (SUB · 15" · 12" · 57 · 421 · TW). Ships FX-only for tight, un-boomy rooms; all-on brings back the classic full-stack feed. Old sessions keep the classic feed automatically.
 
 ### Two instruments, two views
 
 - **GUITAR MODE** — pitches your input down a full octave *before* the whole stack: plug in a guitar, get a bass. The whole UI turns red. ~32 ms of tracking latency, reported to the DAW (which compensates on playback); in the Standalone a red notice reminds you live lag is unavoidable there. Presets don't touch it — it's "what's plugged in", not a tone.
-- **SIMPLE / EXPERT** — SIMPLE trims the panel to the essentials and turns the accent amber. It's a view, not a mode: everything hidden keeps running, and presets still set every control.
+- **SIMPLE / EXPERT** — SIMPLE trims the panel to the essentials and turns the accent amber. What it hides it also mutes (DI and the rooms), so the panel never lies about what's sounding; leave SIMPLE and exactly the strips that were audible before come back. Presets still set every control.
 
 ### Box Of Rules (Artist) presets
 
@@ -78,7 +78,7 @@ Every layer is a channel strip with the same controls.
 | Ø | Phase (polarity) invert. |
 | FUZZ / DIST | Engage the drive; the key reads the active character. Drive-capable layers only. |
 | TYPE | Switch the drive character between FUZZ and DIST. |
-| FEED (SUB · 15" · 12" · 57 · 421 · TW) | ROOM strips only: choose which layers feed that room. All-on is the classic full-stack feed. |
+| FEED (SUB · 15" · 12" · 57 · 421 · TW) | ROOM strips only: choose which layers feed that room. Ships FX-only (SUB and the cleans out — tighter, less boomy rooms); turn everything on for the classic full-stack feed. |
 | PAD | Bottom of every strip: the headroom reference. −12 dB (default) is the classic level; 0 dB raises that strip's ceiling by 12 dB when the fader runs out; −30 dB adds 18 dB of room for hot settings. |
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
