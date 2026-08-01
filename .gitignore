@@ -38,7 +38,7 @@ DerivedData/
 *.p12
 *.cer
 *.key
-.env
+.env*
 
 # User's local validation snapshot — never committed
 /validate-0.2.0/

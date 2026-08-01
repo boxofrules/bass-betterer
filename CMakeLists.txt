@@ -127,6 +127,7 @@ if(BOR_BUILD_TOOLS)
     target_link_libraries(BoRBench PRIVATE
         BoREnhancerIR
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
@@ -143,6 +144,7 @@ if(BOR_BUILD_TOOLS)
     target_link_libraries(BoRPresetMatch PRIVATE
         BoREnhancerIR
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
@@ -159,6 +161,7 @@ if(BOR_BUILD_TOOLS)
     target_link_libraries(BoRFuzzVariants PRIVATE
         BoREnhancerIR
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
