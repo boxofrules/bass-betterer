@@ -161,6 +161,8 @@ private:
     bool eqWasActive = false;
 
     std::atomic<float>* pDriveAmt = nullptr;   // global DRIVE dial (% of the locked amounts)
+    std::atomic<float>* pWidth    = nullptr;   // WIDTH dial (stereo mid/side scale)
+    float smWidth = 1.0f;
 
     // spectrum analyzer fifos (mono -> editor FFT): [0] processed output, [1] raw DI
     std::array<juce::AbstractFifo, 2> analyzerFifo { juce::AbstractFifo { 1 << 14 },

@@ -110,6 +110,7 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
           ++b;
       } }
     pDriveAmt = P ("drive_amt");
+    pWidth    = P ("width");
     pAnalyzer = P ("analyzer");
     pGuitarMode = P ("guitar_mode");
     apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
@@ -136,8 +137,7 @@ BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor()
 
 void BoRBassEnhancerProcessor::refreshLatency()
 {
-    const int lat = (wrapperType != wrapperType_Standalone
-                     && pGuitarMode != nullptr && pGuitarMode->load() > 0.5f)
+    const int lat = (pGuitarMode != nullptr && pGuitarMode->load() > 0.5f)
                         ? shifter.latencySamples() : 0;
     if (lat != getLatencySamples())
         setLatencySamples (lat);
@@ -229,6 +229,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
             ParameterID { "drive_amt", 1 }, "Fuzz Drive", dr, 100.0f,
             AudioParameterFloatAttributes().withLabel ("%")));
     }
+    // v1.0: WIDTH — mid/side image scale between GLUE and OUTPUT, stereo
+    // instances only (the editor hides it in mono, the DSP skips it). 100 %
+    // is skipped entirely: the M/S decompose+recompose is not bit-exact even
+    // at unity, so the neutral default must bypass, not multiply by 1.
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "width", 1 }, "Width",
+        NormalisableRange<float> (0.0f, 200.0f, 1.0f), 100.0f,
+        AudioParameterFloatAttributes().withLabel ("%")));
     // v1.0: master EQ column (post glue, pre output gain). All dials at 0 =
     // the stage is skipped entirely (no CPU, byte-identical to pre-EQ renders).
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -264,8 +272,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
     // v1.0: GUITAR mode — the whole chain hears the input an octave down
     // (play a guitar, get a bass). Default off reproduces every earlier
     // render byte-identically. Excluded from preset load/save: presets are
-    // tones, this is "what instrument is plugged in". Plugin formats only —
-    // the Standalone hides the key and force-bypasses the mode.
+    // tones, this is "what instrument is plugged in". Available in every
+    // format; the Standalone shows a red lag notice while it is active.
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "guitar_mode", 1 }, "Guitar Mode", false));
 
     // DI blend strip — the original DI tone, blended in. Muted by default.
@@ -453,12 +461,11 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smSnap) smInG = inG;
     auto* mono = monoIn.getWritePointer (0);
     auto* dry  = dryIn.getWritePointer (0);
-    // GUITAR mode is a plugin-format feature (AU/VST3/AAX): in the Standalone
-    // the toggle is hidden and the mode is force-bypassed, whatever a loaded
-    // session says. (bor-bench instantiates with wrapperType_Undefined, so the
-    // fingerprint config still exercises the shifter.)
-    const bool   gmOn     = pGuitarMode->load() > 0.5f
-                              && wrapperType != wrapperType_Standalone;
+    // GUITAR mode runs in every format, Standalone included (v1.0: it was
+    // briefly plugin-only). There is no host to compensate the ~32 ms
+    // tracking latency in the Standalone, so the editor shows a red
+    // "unavoidable lag" notice there while the mode is active.
+    const bool   gmOn     = pGuitarMode->load() > 0.5f;
     const float  gmTarget = gmOn ? 1.0f : 0.0f;
     const float* abRef    = dry;                 // what the A/B key auditions
     if (gmOn || gmXf > 1.0e-4f)                  // engaged, or still fading out
@@ -683,6 +690,27 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smMakeup != 1.0f || makeup != 1.0f)
         outBus.applyGainRamp (0, n, smMakeup, makeup);
     smMakeup = makeup;
+
+    // --- WIDTH (stereo only): mid/side image scale, skipped at 100 % ---
+    if (numOut >= 2)
+    {
+        const float w = std::round (pWidth->load()) / 100.0f;   // round: skew-roundtrip lesson
+        if (smSnap) smWidth = w;
+        if (! juce::exactlyEqual (w, 1.0f) || ! juce::exactlyEqual (smWidth, 1.0f))
+        {
+            float* L = outBus.getWritePointer (0);
+            float* R = outBus.getWritePointer (1);
+            for (int s2 = 0; s2 < n; ++s2)
+            {
+                const float ww = smWidth + (w - smWidth) * (float) (s2 + 1) * rampInc;
+                const float m  = 0.5f * (L[s2] + R[s2]);
+                const float sd = 0.5f * (L[s2] - R[s2]) * ww;
+                L[s2] = m + sd;
+                R[s2] = m - sd;
+            }
+        }
+        smWidth = w;
+    }
 
     // --- master EQ (post glue, pre output): four dials, skipped when neutral ---
     {

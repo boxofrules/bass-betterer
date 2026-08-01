@@ -17,10 +17,11 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 Out of beta.
 
-- **GUITAR MODE** — the new GUITAR MODE key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. Plugin formats only (AU/VST3/AAX): the Standalone app doesn't carry the GUITAR MODE key.
+- **GUITAR MODE** — the new GUITAR MODE key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. In the Standalone app there is no DAW to compensate, so a red notice reminds you the mode may incur unavoidable live lag.
 - **DRIVE, RELEASE and SUSTAIN dials** — the drive stage, opened up. DRIVE scales how hard every drive strip hits its clipper (100 % is the classic amount, exactly). The fuzz used to hug your note's decay so tightly it could read as a sidechain-style duck after each pluck; the new RELEASE dial (default 2.5 s, tuned by ear on real stems) lets the drive hang on and bloom instead. SUSTAIN adds upward compression inside the drive for even more hold. The trio lives left of INPUT and lights up when any drive is engaged. Old sessions keep their exact old sound automatically.
 - **Room FEED selects** — each ROOM strip now has a column of six keys choosing which layers feed that room (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them. All-on is the classic feed, so existing sessions are untouched.
 - **Master EQ** — a four-dial EQ column (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE for final shaping without leaving the plugin. Click a band's label to choose its frequency. At zero it is truly out of the circuit.
+- **WIDTH** — a mid/side image dial between GLUE and OUTPUT (0–200 %, stereo instances only). 100 % is the untouched classic image.
 - **Cleaner strip names** — the legacy "LOW" prefix is gone: the clean bands are now CLEAN 15" and CLEAN 12" (named for the speakers they lean on) and the drive strips are FX 57, FX 421 and FX TWEETER. Names only — sessions, presets and automation are untouched.
 - All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ at the stock RELEASE remains byte-for-byte identical to every release before it.
 
@@ -67,6 +68,7 @@ Every layer is a channel strip with the same controls.
 | RELEASE | How long the drive's envelope hangs on after each note (all drive strips share it). Short = tight and percussive; long (the default) = blooming sustain. |
 | SUSTAIN | Upward compression inside the drive — quieter tails come back louder. 0 is the classic envelope. |
 | GLUE | Sums the layers into one cohesive instrument. |
+| WIDTH | Stereo image, 0–200 % (mid/side). 100 % is untouched; shown only in stereo, like the pans. Lives between GLUE and OUTPUT. |
 | EQ (LOW / LO MID / HI MID / HIGH) | Four-dial master EQ after GLUE, ±12 dB per band. Click a band's label to choose where its shelf/peak sits (e.g. LO MID at 180, 250, 350 or 500 Hz). At zero gain a band is completely out of the signal path. |
 | OUTPUT | Output gain. |
 | FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |

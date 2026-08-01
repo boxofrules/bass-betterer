@@ -823,6 +823,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         outKnob  = std::make_unique<bbe::Knob> (proc, "out_gain", "OUTPUT", 1, knobLnf);
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
 
+        // v1.0: WIDTH (mid/side, between GLUE and OUTPUT) — stereo instances
+        // only, same rule as the pans (a mono render has no image to widen)
+        widthKnob = std::make_unique<bbe::Knob> (proc, "width", "WIDTH", 0, knobLnf);
+        addAndMakeVisible (*widthKnob);
+        widthKnob->setVisible (stereo);
+
         // v1.0: global drive-envelope dials — one setting for every drive
         // strip. Greyed (but visible) until a FUZZ/DIST key is engaged.
         drvKnob = std::make_unique<bbe::Knob> (proc, "drive_amt",     "DRIVE",   0, knobLnf);
@@ -883,10 +889,13 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // (not ButtonAttachment) so host automation recolors this editor too;
         // sendInitialUpdate paints the right theme when the editor opens on a
         // session already in guitar mode. Created last: applyTheme touches
-        // every themed component above. Plugin formats only — the Standalone
-        // gets no key (and the processor force-bypasses the mode there).
-        if (proc.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
+        // every themed component above. Available in every format — the
+        // Standalone additionally shows a red lag notice while it is active
+        // (no host there to compensate the ~32 ms octave-tracking latency).
         {
+            setupLbl (lagLbl, "GUITAR MODE may incur unavoidable lag", bor::guitarRed,
+                      11.0f, true, juce::Justification::centredLeft);
+            addChildComponent (lagLbl);
             gtr = std::make_unique<bbe::SquareButton> ("GUITAR MODE", bor::guitarRed, bor::accentOn);
             gtr->setTooltip ("GUITAR MODE: pitches your input down a full octave before the whole "
                              "tone stack — plug in a guitar, get a bass");
@@ -894,10 +903,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             addAndMakeVisible (*gtr);
             if (auto* prm = proc.apvts.getParameter ("guitar_mode"))
             {
-                gtrAtt = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v)
+                gtrAtt = std::make_unique<juce::ParameterAttachment> (*prm, [this, &p = proc] (float v)
                 {
                     gtrOn = v > 0.5f;
                     gtr->setToggleState (gtrOn, juce::dontSendNotification);
+                    lagLbl.setVisible (gtrOn && p.wrapperType
+                                                    == juce::AudioProcessor::wrapperType_Standalone);
                     applyTheme (gtrOn);
                 });
                 gtrAtt->sendInitialUpdate();
@@ -1215,7 +1226,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         presetBox.setBounds (header.getRight() - padX - 70 - 12 - 220, cy - 13, 220, 26);
         sys->setBounds (presetBox.getX() - 12 - 44, cy - 13, 44, 26);
         int linkAnchor = sys->getX();
-        if (gtr != nullptr)   // header GUITAR key — absent in the Standalone
+        if (gtr != nullptr)   // header GUITAR MODE key (every format since v1.0)
         {
             gtr->setBounds (sys->getX() - 12 - 122, cy - 13, 122, 26);
             linkAnchor = gtr->getX();
@@ -1258,6 +1269,11 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         const int ky = bottom.getCentreY() - kh / 2;
         int kx = bottom.getRight() - kw;
         outKnob->setBounds  (kx, ky, kw, kh); kx -= kw + kgap;
+        if (widthKnob->isVisible())
+        {
+            widthKnob->setBounds (kx, ky, kw, kh);
+            kx -= kw + kgap;
+        }
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
@@ -1273,6 +1289,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
         left.removeFromTop (6);
         analyzer->setBounds (left.removeFromTop (96));
+
+        lagLbl.setBounds (padX, getHeight() - 30, 420, 18);   // footer, bottom-left
 
         footRuleY = r.getY();
     }
@@ -1295,9 +1313,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::SquareButton> freq, sys, gtr;
     std::unique_ptr<juce::ParameterAttachment> gtrAtt;   // GUITAR mode (recolors on automation too)
     bool gtrOn = false;
+    juce::Label lagLbl;   // Standalone: red "unavoidable lag" notice while GUITAR MODE is on
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
-    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, drvKnob, relKnob, susKnob;
+    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, widthKnob, drvKnob, relKnob, susKnob;
     std::array<std::unique_ptr<bbe::Knob>, 4> eqKnobs;
     std::array<std::unique_ptr<juce::ParameterAttachment>, 4> eqFreqAtts;
     juce::Label eqLbl;
