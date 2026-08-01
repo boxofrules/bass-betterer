@@ -88,7 +88,9 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
         pDuck [(size_t) c] = P (id + "_duck");
         pFuzz [(size_t) c] = channels[(size_t) c].isFX ? P (id + "_fuzz") : nullptr;
         pDriveType[(size_t) c] = channels[(size_t) c].isFX ? P (id + "_drivetype") : nullptr;
+        pPad  [(size_t) c] = P (id + "_pad");
     }
+    pDiPad = P ("di_pad");
 
     // v0.2.0: the DIST character's fitted values ride the encrypted asset
     // pack (embedded like the IRs). A malformed blob falls back to FUZZ.
@@ -111,6 +113,7 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
       } }
     pDriveAmt = P ("drive_amt");
     pWidth    = P ("width");
+    pFxSat    = P ("fx_sat");
     pAnalyzer = P ("analyzer");
     pGuitarMode = P ("guitar_mode");
     apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
@@ -163,6 +166,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
             ParameterID { id + "_pan", 1 }, nm + " Pan",
             NormalisableRange<float> (-1.0f, 1.0f, 0.01f), 0.0f));
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { id + "_phase", 1 }, nm + " Phase", false));
+        // v1.0: PAD — the strip's headroom reference. -12 dB (the default) IS
+        // the classic level (a pure re-labelling, bit-exact); 0 dB raises the
+        // strip's ceiling by 12 dB, -30 dB adds 18 dB of room for hot settings.
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { id + "_pad", 1 }, nm + " Pad",
+            StringArray { "-30 dB", "-12 dB", "0 dB" }, 1));
         // v0.2.0: sidechain ducking left the free plugin (premium feature).
         // The `_duck` params stay DECLARED for session/state compatibility —
         // the surface is append-only once shipped — but nothing reads them.
@@ -230,13 +239,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
             ParameterID { "drive_amt", 1 }, "Fuzz Drive", dr, 100.0f,
             AudioParameterFloatAttributes().withLabel ("%")));
     }
-    // v1.0: WIDTH — mid/side image scale between GLUE and OUTPUT, stereo
-    // instances only (the editor hides it in mono, the DSP skips it). 100 %
-    // is skipped entirely: the M/S decompose+recompose is not bit-exact even
-    // at unity, so the neutral default must bypass, not multiply by 1.
+    // v1.0: SAT — saturation on the COMBINED FX-strip bus (post cab, pre mix):
+    // the three mics clipping as one signal generate the cross-mic intermod a
+    // printed drive tone has. 0 (default) = the classic direct routing, bit-exact.
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "fx_sat", 1 }, "FX Saturate",
+        NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
+        AudioParameterFloatAttributes().withLabel ("%")));
+    // v1.0: WIDTH — stereo spreader between GLUE and OUTPUT, stereo instances
+    // only (the editor hides it in mono, the DSP skips it). 0 (default) = off,
+    // skipped entirely/bit-exact; the whole travel is spread amount — the
+    // stack is mono by design, so there is no "narrow" range worth having.
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "width", 1 }, "Width",
-        NormalisableRange<float> (0.0f, 200.0f, 1.0f), 100.0f,
+        NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
         AudioParameterFloatAttributes().withLabel ("%")));
     // v1.0: master EQ column (post glue, pre output gain). All dials at 0 =
     // the stage is skipped entirely (no CPU, byte-identical to pre-EQ renders).
@@ -287,6 +303,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         ParameterID { "di_pan", 1 }, "DI Pan", NormalisableRange<float> (-1.0f, 1.0f, 0.01f), 0.0f));
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { "di_phase", 1 }, "DI Phase", false));
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { "di_duck",  1 }, "DI Sidechain", false));
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "di_pad", 1 }, "DI Pad", StringArray { "-30 dB", "-12 dB", "0 dB" }, 1));
 
     ignoreUnused (pct);
     return layout;
@@ -357,6 +375,8 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     outBus.setSize (2, samplesPerBlock);
     layerBuf.setSize (NUM_CH, samplesPerBlock);
     roomFeed.allocate ((size_t) samplesPerBlock, true);
+    fxBus.setSize (2, samplesPerBlock);
+    smFxSat = 0.0f;
 
     // WIDTH spreader state (6 ms mid delay, 250 Hz side low-cut)
     spreadLen = juce::jmax (1, (int) (sampleRate * 0.006));
@@ -527,10 +547,17 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const bool muted = pMute[(size_t) c]->load() > 0.5f;
         const bool solo  = pSolo[(size_t) c]->load() > 0.5f;
         active[(size_t) c] = ! muted && (! anySolo || solo);
-        gain[(size_t) c]   = active[(size_t) c] ? juce::Decibels::decibelsToGain (pGain[(size_t) c]->load(), -60.0f) : 0.0f;
+        // PAD scales AFTER the -60 silence floor so the fader's bottom stays
+        // true silence; index 1 (the -12 default) is an exact x1.0
+        static constexpr std::array<float, 3> PAD_LIN { 0.12589254f, 1.0f, 3.98107171f };  // -18 / 0 / +12 dB
+        const float pad = PAD_LIN[(size_t) juce::jlimit (0, 2, (int) pPad[(size_t) c]->load())];
+        gain[(size_t) c]   = active[(size_t) c]
+            ? juce::Decibels::decibelsToGain (pGain[(size_t) c]->load(), -60.0f) * pad : 0.0f;
     }
     const bool  diActive = (pDiMute->load() <= 0.5f) && (! anySolo || pDiSolo->load() > 0.5f);
-    const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load(), -60.0f) : 0.0f;
+    static constexpr std::array<float, 3> PAD_LIN { 0.12589254f, 1.0f, 3.98107171f };
+    const float diGain   = diActive ? juce::Decibels::decibelsToGain (pDiGain->load(), -60.0f)
+                                        * PAD_LIN[(size_t) juce::jlimit (0, 2, (int) pDiPad->load())] : 0.0f;
 
     // ---- PASS 1: render each layer (post fuzz/conv/phase) into layerBuf ----
 
@@ -640,9 +667,26 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto* outL = outBus.getWritePointer (0);
     auto* outR = outBus.getWritePointer (1);
 
+    // v1.0 SAT: the FX strips can render to a sub-bus that is saturated as ONE
+    // signal before joining the mix — the sum clipping together makes the
+    // cross-mic intermod a printed drive tone has. 0 (default) keeps the
+    // classic direct routing bit-exactly (no sub-bus, same add order).
+    const float satAmt = std::round (pFxSat->load()) / 100.0f;
+    if (smSnap) smFxSat = satAmt;
+    const bool satOn = satAmt > 0.0f || smFxSat > 0.0f;
+    float* fxL = nullptr;
+    float* fxR = nullptr;
+    if (satOn)
+    {
+        fxBus.clear (0, 0, n);
+        fxBus.clear (1, 0, n);
+        fxL = fxBus.getWritePointer (0);
+        fxR = fxBus.getWritePointer (1);
+    }
+
     // ramps from the previous block's effective L/R gains to this block's targets,
     // so gain/pan moves AND mute/solo cuts glide instead of stepping
-    auto mixStrip = [&] (const float* lc, float g, float pan, float phase,
+    auto mixStrip = [&] (const float* lc, float* dL, float* dR, float g, float pan, float phase,
                          float& prevLg, float& prevRg, std::atomic<float>& levelOut)
     {
         const float ang = (pan * 0.5f + 0.5f) * juce::MathConstants<float>::halfPi;
@@ -658,8 +702,8 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             const float lg = prevLg + (tLg - prevLg) * r;
             const float rg = prevRg + (tRg - prevRg) * r;
             const float v  = lc[s];
-            outL[s] += v * lg;
-            outR[s] += v * rg;
+            dL[s] += v * lg;
+            dR[s] += v * rg;
             pk = juce::jmax (pk, std::abs (v));
         }
         prevLg = tLg; prevRg = tRg;
@@ -671,15 +715,36 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         // inactive strips still mix with target gain 0 so the cut ramps out
         // SUB (c == 0) is dead centre by design — its pan param is vestigial
         const float pan = (isStereo() && c != 0) ? pPan[(size_t) c]->load() : 0.0f;
-        mixStrip (layerBuf.getReadPointer (c), gain[(size_t) c], pan, 1.0f,
+        const bool toFx = satOn && channels[(size_t) c].isFX;
+        mixStrip (layerBuf.getReadPointer (c), toFx ? fxL : outL, toFx ? fxR : outR,
+                  gain[(size_t) c], pan, 1.0f,
                   smLg[(size_t) c], smRg[(size_t) c], chLevel[(size_t) c]);
     }
 
     {
         // DI blend stays centred (its strip carries the A/B button instead of pan)
         const float phase = pDiPhase->load() > 0.5f ? -1.0f : 1.0f;
-        mixStrip (dry, diGain, 0.0f, phase, smDiLg, smDiRg, diLevel);
+        mixStrip (dry, outL, outR, diGain, 0.0f, phase, smDiLg, smDiRg, diLevel);
     }
+
+    if (satOn)   // saturate the combined FX bus, blend in, add to the mix
+    {
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float* src = fxBus.getReadPointer (ch);
+            float* dst = ch == 0 ? outL : outR;
+            for (int s = 0; s < n; ++s)
+            {
+                const float a    = smFxSat + (satAmt - smFxSat) * (float) (s + 1) * rampInc;
+                const float gdrv = 1.0f + 9.0f * a;
+                // tanh(gx)/g holds small-signal unity: the dial adds harmonics,
+                // not level; the a-blend makes the bottom of the dial gentle
+                const float x = src[s];
+                dst[s] += x + a * (std::tanh (gdrv * x) / gdrv - x);
+            }
+        }
+    }
+    smFxSat = satAmt;
 
     // --- glue: compress the sum (threshold/ratio scale with the knob) ---
     const float glue = pGlue->load();
@@ -699,18 +764,18 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         outBus.applyGainRamp (0, n, smMakeup, makeup);
     smMakeup = makeup;
 
-    // --- WIDTH (stereo only): spreader, skipped (bit-exact) at 100 % ---
-    // Below 100 % narrows the existing image (mid/side scale). Above 100 % it
-    // SPREADS: the stack is nearly mono by design (lows centred, pans at the
-    // detent), so there is no side to scale up — instead a side signal is
-    // generated from a 6 ms delayed, 250 Hz low-cut copy of the mid, pushed
-    // complementarily (+L / -R). The mono fold-down is therefore EXACTLY the
-    // untouched mid — the generated side cancels — and the lows stay centred.
+    // --- WIDTH (stereo only): spreader, 0 = off (skipped, bit-exact) ---
+    // The stack is nearly mono by design (lows centred, pans at the detent),
+    // so there is no side to scale — width is GENERATED: a 6 ms delayed,
+    // 250 Hz low-cut copy of the mid pushed complementarily (+L / -R). The
+    // mono fold-down is therefore EXACTLY the untouched mix — the generated
+    // side cancels — and the lows stay centred. Real stereo content (panned
+    // strips) passes through unscaled.
     if (numOut >= 2)
     {
         const float w = std::round (pWidth->load()) / 100.0f;   // round: skew-roundtrip lesson
         if (smSnap) smWidth = w;
-        if (! juce::exactlyEqual (w, 1.0f) || ! juce::exactlyEqual (smWidth, 1.0f))
+        if (w > 0.0f || smWidth > 0.0f)
         {
             float* L = outBus.getWritePointer (0);
             float* R = outBus.getWritePointer (1);
@@ -718,12 +783,12 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             {
                 const float ww = smWidth + (w - smWidth) * (float) (s2 + 1) * rampInc;
                 const float m  = 0.5f * (L[s2] + R[s2]);
-                float sd = 0.5f * (L[s2] - R[s2]) * juce::jmin (ww, 1.0f);
+                float sd = 0.5f * (L[s2] - R[s2]);
                 spreadBuf[(size_t) spreadW] = m;
                 spreadW = (spreadW + 1) % spreadLen;
                 const float d = spreadBuf[(size_t) spreadW];      // oldest = 6 ms ago
                 spreadLp += spreadLpC * (d - spreadLp);           // one-pole LP; HP = d - LP
-                sd += 0.7f * juce::jmax (0.0f, ww - 1.0f) * (d - spreadLp);
+                sd += 0.7f * ww * (d - spreadLp);
                 L[s2] = m + sd;
                 R[s2] = m - sd;
             }

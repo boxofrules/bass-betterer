@@ -168,6 +168,7 @@ int main (int argc, char** argv)
         { "di_gain",       -24.0f,  6.0f, 3.0f },
         { "glue",            0.0f,  1.0f, 0.25f },
         { "drive_amt",      25.0f, 400.0f, 50.0f },
+        { "fx_sat",          0.0f, 100.0f, 20.0f },
         { "eq_low",         -9.0f,  9.0f, 2.0f },
         { "eq_lomid",       -9.0f,  9.0f, 2.0f },
         { "eq_himid",       -9.0f,  9.0f, 2.0f },
@@ -175,6 +176,12 @@ int main (int argc, char** argv)
     };
     struct DCoord { const char* id; std::vector<float> opts; };        // discrete
     static const std::vector<DCoord> disc {
+        { "sub_pad",     { 0, 1, 2 } },   // -30 / -12 (classic) / 0 dB headroom
+        { "lowcln1_pad", { 0, 1, 2 } },
+        { "lowcln2_pad", { 0, 1, 2 } },
+        { "lofx57_pad",  { 0, 1, 2 } },
+        { "lofx421_pad", { 0, 1, 2 } },
+        { "lofxtwt_pad", { 0, 1, 2 } },
         { "lofx57_fuzz",       { 0, 1 } },
         { "lofx421_fuzz",      { 0, 1 } },
         { "lofxtwt_fuzz",      { 0, 1 } },

@@ -121,6 +121,8 @@ private:
     // cached parameter pointers (lock-free reads on the audio thread)
     std::array<std::atomic<float>*, NUM_CH> pGain{}, pMute{}, pSolo{}, pPan{}, pFuzz{}, pPhase{}, pDuck{};
     std::array<std::atomic<float>*, NUM_CH> pDriveType{};   // v0.2.0: FUZZ/DIST per drive strip
+    std::array<std::atomic<float>*, NUM_CH> pPad{};         // v1.0: per-strip headroom pad
+    std::atomic<float>* pDiPad = nullptr;
     std::atomic<float>* pInGain  = nullptr;
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pGlue    = nullptr;
@@ -163,8 +165,11 @@ private:
     bool eqWasActive = false;
 
     std::atomic<float>* pDriveAmt = nullptr;   // global DRIVE dial (% of the locked amounts)
-    std::atomic<float>* pWidth    = nullptr;   // WIDTH dial (narrow / spread)
-    float smWidth = 1.0f;
+    std::atomic<float>* pWidth    = nullptr;   // WIDTH dial (spread amount, 0 = off)
+    std::atomic<float>* pFxSat    = nullptr;   // SAT dial (combined FX-bus saturation)
+    float smFxSat = 0.0f;
+    juce::AudioBuffer<float> fxBus;            // FX strips' sub-bus while SAT is engaged
+    float smWidth = 0.0f;
     juce::HeapBlock<float> spreadBuf;          // spreader: 6 ms mid delay + side low-cut
     int   spreadLen = 1, spreadW = 0;
     float spreadLp = 0.0f, spreadLpC = 0.0f;

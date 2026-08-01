@@ -59,6 +59,7 @@ Every layer is a channel strip with the same controls.
 | FUZZ / DIST | Engage the drive; the key reads the active character. Drive-capable layers only. |
 | TYPE | Switch the drive character between FUZZ and DIST. |
 | FEED (SUB · 15" · 12" · 57 · 421 · TW) | ROOM strips only: choose which layers feed that room. All-on is the classic full-stack feed. |
+| PAD | Bottom of every strip: the headroom reference. −12 dB (default) is the classic level; 0 dB raises that strip's ceiling by 12 dB when the fader runs out; −30 dB adds 18 dB of room for hot settings. |
 
 **Double-click to reset:** double-click any fader, pan, or master knob and it snaps back to its default (pan returns to dead centre).
 
@@ -66,10 +67,11 @@ Every layer is a channel strip with the same controls.
 | --- | --- |
 | INPUT | Input gain. Also drives the fuzz, like a pedal. |
 | DRIVE | How hard every drive strip hits its clipper, 25–400 % of the classic amount (100 % = the original FUZZ/DIST, exactly). |
+| SATURATE | Saturates the three FX strips **as one combined bus** after their cabs — the mics clipping together create the cross-talk richness of a printed drive tone. Works on the clean FX cabs too; 0 is completely out of the path. |
 | RELEASE | How long the drive's envelope hangs on after each note (all drive strips share it). Short = tight and percussive; long (the default) = blooming sustain. |
 | SUSTAIN | Upward compression inside the drive — quieter tails come back louder. 0 is the classic envelope. |
 | GLUE | Sums the layers into one cohesive instrument. |
-| WIDTH | Stereo spreader, 0–200 %. Above 100 % it generates width from the (mostly mono) stack — a short, low-cut echo of the mid pushed opposite ways — so the sound wraps wider while the mono fold-down stays *exactly* intact and the lows stay centred. Below 100 % narrows any real stereo content; 100 % is untouched. Shown only in stereo; lives between GLUE and OUTPUT. |
+| WIDTH | Stereo spreader, 0–100 %. Generates width from the (mostly mono) stack — a short, low-cut echo of the mid pushed opposite ways — so the sound wraps wider while the mono fold-down stays *exactly* intact and the lows stay centred. 0 (default) is completely out of the path. Shown only in stereo; lives between GLUE and OUTPUT. |
 | EQ (LOW / LO MID / HI MID / HIGH) | Four-dial master EQ after GLUE, ±12 dB per band. Click a band's label to choose where its shelf/peak sits (e.g. LO MID at 180, 250, 350 or 500 Hz). At zero gain a band is completely out of the signal path. |
 | OUTPUT | Output gain. |
 | FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |
