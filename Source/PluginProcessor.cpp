@@ -127,6 +127,7 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     // setStateInformation() replaces apvts.state wholesale for a restored session,
     // so this has no effect once a saved session/preset is loaded.
     apvts.state.setProperty ("freqView", "all", nullptr);
+    apvts.state.setProperty ("uiMode", "expert", nullptr);   // SIMPLE/EXPERT view (see editor)
 }
 
 BoRBassEnhancerProcessor::~BoRBassEnhancerProcessor()

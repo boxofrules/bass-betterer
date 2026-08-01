@@ -22,6 +22,7 @@ Out of beta.
 - **Room FEED selects** — each ROOM strip now has a column of six keys choosing which layers feed that room (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them. All-on is the classic feed, so existing sessions are untouched.
 - **Master EQ** — a four-dial EQ column (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE for final shaping without leaving the plugin. Click a band's label to choose its frequency. At zero it is truly out of the circuit.
 - **WIDTH** — a mid/side image dial between GLUE and OUTPUT (0–200 %, stereo instances only). 100 % is the untouched classic image.
+- **SIMPLE / EXPERT view** — the header SIMPLE key trims the panel to the essentials (SUB, the clean pair, the FX strips, DRIVE and the master gains) and turns the accent amber so you always know which view you're in. It's a view, not a mode: everything hidden keeps running, and presets/sessions still set every control. EXPERT brings it all back.
 - **Cleaner strip names** — the legacy "LOW" prefix is gone: the clean bands are now CLEAN 15" and CLEAN 12" (named for the speakers they lean on) and the drive strips are FX 57, FX 421 and FX TWEETER. Names only — sessions, presets and automation are untouched.
 - All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ at the stock RELEASE remains byte-for-byte identical to every release before it.
 

@@ -23,6 +23,7 @@ namespace bor
     // ink text stays legible on lit keys, and clearly lighter than the meter
     // clip red (oxbloodHi) so the two never read as the same signal.
     const juce::Colour guitarRed  { 0xffD96A56 };
+    const juce::Colour simpleAmber{ 0xffF2A20C };   // SIMPLE view accent
     const juce::Colour accentOn   { 0xff0B0B0C };
     const juce::Colour sigOff     { 0xff3A3C40 };
     const juce::Colour vu         { 0xff4FAE5A };
@@ -775,13 +776,16 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         // "move the rooms to the channels at the end"), a pure view-level
         // reorder: channel indices, params and sessions are untouched. SUB
         // has no pan either: the lows stay dead centre.
+        stereoInst = stereo;
         strips.add (new bbe::Strip (proc, "di", "DI", false, false, false, true, faderLnf, panLnf));
+        hideInSimple.add (strips.getLast());   // SIMPLE view: no DI strip
         for (int k = 0; k < BoRBassEnhancerProcessor::NUM_CH; ++k)
         {
             const int c = displayOrder[(size_t) k];
             const auto& ch = BoRBassEnhancerProcessor::channels[(size_t) c];
             strips.add (new bbe::Strip (proc, ch.id, ch.name, ch.isFX, ch.isRoom,
                                         stereo && c != 0, false, faderLnf, panLnf));
+            if (ch.isRoom) hideInSimple.add (strips.getLast());   // ...nor rooms
         }
         for (auto* s : strips) addAndMakeVisible (s);
 
@@ -885,6 +889,22 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             pStripFuzz[(size_t) fi++] = proc.apvts.getRawParameterValue (juce::String (id) + "_fuzz");
         refreshDriveDials();
 
+        // SIMPLE/EXPERT — a VIEW, not a parameter: presets and sessions still
+        // set every hidden control's value; SIMPLE only trims what is shown
+        // (no DI/ROOM strips, no EQ column, no RELEASE/SUSTAIN/WIDTH) and
+        // re-themes the panel amber. Persisted like freqView ("uiMode").
+        smp = std::make_unique<bbe::SquareButton> ("SIMPLE", bor::simpleAmber, bor::ink);
+        smp->setTooltip ("Simple view: just the essential controls. Everything hidden keeps "
+                         "working — presets and sessions still set it all.");
+        smp->setClickingTogglesState (false);
+        smp->onClick = [this]
+        {
+            simpleOn = ! simpleOn;
+            proc.apvts.state.setProperty ("uiMode", simpleOn ? "simple" : "expert", nullptr);
+            applyMode();
+        };
+        addAndMakeVisible (*smp);
+
         // GUITAR mode: octave-down front end + red theme. ParameterAttachment
         // (not ButtonAttachment) so host automation recolors this editor too;
         // sendInitialUpdate paints the right theme when the editor opens on a
@@ -909,23 +929,26 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                     gtr->setToggleState (gtrOn, juce::dontSendNotification);
                     lagLbl.setVisible (gtrOn && p.wrapperType
                                                     == juce::AudioProcessor::wrapperType_Standalone);
-                    applyTheme (gtrOn);
+                    applyTheme();
                 });
                 gtrAtt->sendInitialUpdate();
                 gtr->onClick = [this] { gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f); };
             }
         }
 
+        simpleOn = proc.apvts.state.getProperty ("uiMode", "expert").toString() == "simple";
+        applyMode();
         setSize (1264, 784);   // 10 columns (DI + 8 strips + master EQ)
         startTimerHz (30);
     }
 
     // Pushes the theme accent into every component that painted or copied it.
-    // Called only on guitar_mode edges (toggle/automation/session load) — one
-    // full repaint per switch, never from the 30 Hz timer.
-    void applyTheme (bool guitar)
+    // Called only on mode edges (GUITAR toggle/automation, SIMPLE toggle,
+    // session load) — one full repaint per switch, never from the 30 Hz timer.
+    // GUITAR red outranks SIMPLE amber outranks the signal cyan.
+    void applyTheme()
     {
-        const auto a = guitar ? bor::guitarRed : bor::accent;
+        const auto a = gtrOn ? bor::guitarRed : simpleOn ? bor::simpleAmber : bor::accent;
         if (a == themeAccent) return;
         themeAccent    = a;
         knobLnf.accent = a;
@@ -972,6 +995,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         refreshFreqButton();   // host automation can flip the analyzer param under us
         refreshDriveDials();   // FUZZ/DIST keys (or automation) gate the envelope dials
 
+        // session restore replaces apvts.state wholesale — resync the view mode
+        const bool s = proc.apvts.state.getProperty ("uiMode", "expert").toString() == "simple";
+        if (s != simpleOn) { simpleOn = s; applyMode(); }
+
         if (info->isVisible())
         {
             const float load = (float) proc.getCpuLoad();
@@ -992,6 +1019,22 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "XRUNS|"       + juce::String (proc.getXRunCount()) + " (callbacks over budget)",
             });
         }
+    }
+
+    // SIMPLE/EXPERT view: trim what is shown, retheme, relayout. Values of
+    // hidden controls are untouched — presets/sessions still set everything.
+    void applyMode()
+    {
+        for (auto* s : hideInSimple) s->setVisible (! simpleOn);
+        for (auto& k : eqKnobs) k->setVisible (! simpleOn);
+        eqLbl.setVisible     (! simpleOn);
+        relKnob->setVisible  (! simpleOn);
+        susKnob->setVisible  (! simpleOn);
+        widthKnob->setVisible(! simpleOn && stereoInst);
+        smp->setToggleState (simpleOn, juce::dontSendNotification);
+        applyTheme();
+        resized();
+        repaint();
     }
 
     // grey the RELEASE/SUSTAIN pair while no drive strip is engaged
@@ -1231,6 +1274,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             gtr->setBounds (sys->getX() - 12 - 122, cy - 13, 122, 26);
             linkAnchor = gtr->getX();
         }
+        smp->setBounds (linkAnchor - 12 - 70, cy - 13, 70, 26);
+        linkAnchor = smp->getX();
         updateLink.setBounds (linkAnchor - 12 - 170, cy - 13, 170, 26);
         info->setBounds (getLocalBounds().withSizeKeepingCentre (430, 262));
 
@@ -1240,24 +1285,30 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         auto section = r.removeFromTop (516).withTrimmedLeft (padX).withTrimmedRight (padX);
         section.removeFromTop (20); section.removeFromBottom (22);
 
-        // master EQ column at the far right, strip-header-aligned
-        auto eqCol = section.removeFromRight (84);
-        section.removeFromRight (10);
-        eqLbl.setBounds (eqCol.removeFromTop (28).translated (0, 11));
-        eqCol.removeFromTop (10);
-        const int ekh = (eqCol.getHeight() - 3 * 8) / 4;
-        for (auto& k : eqKnobs)
+        // master EQ column at the far right, strip-header-aligned (EXPERT view)
+        if (eqKnobs[0]->isVisible())
         {
-            k->setBounds (eqCol.removeFromTop (ekh));
-            eqCol.removeFromTop (8);
+            auto eqCol = section.removeFromRight (84);
+            section.removeFromRight (10);
+            eqLbl.setBounds (eqCol.removeFromTop (28).translated (0, 11));
+            eqCol.removeFromTop (10);
+            const int ekh = (eqCol.getHeight() - 3 * 8) / 4;
+            for (auto& k : eqKnobs)
+            {
+                k->setBounds (eqCol.removeFromTop (ekh));
+                eqCol.removeFromTop (8);
+            }
         }
 
-        const int n = strips.size(), gap = 10;
+        // the visible strips share the row (SIMPLE hides DI + rooms)
+        juce::Array<bbe::Strip*> vis;
+        for (auto* s : strips) if (s->isVisible()) vis.add (s);
+        const int n = vis.size(), gap = 10;
         const int sw = (section.getWidth() - gap * (n - 1)) / n;
         for (int i = 0; i < n; ++i)
         {
             auto col = section.removeFromLeft (i == n - 1 ? section.getWidth() : sw);
-            strips[i]->setBounds (col);
+            vis[i]->setBounds (col);
             if (i < n - 1) section.removeFromLeft (gap);
         }
 
@@ -1277,12 +1328,17 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // drive trio (DRIVE · RELEASE · SUSTAIN), slightly smaller, left of the masters
+        // drive trio (DRIVE · RELEASE · SUSTAIN), slightly smaller, left of the
+        // masters. SIMPLE hides RELEASE/SUSTAIN; the visible ones pack right.
         const int dkw = 66, dkh = 92, dky = bottom.getCentreY() - dkh / 2;
-        kx -= dkw + kgap;
-        susKnob->setBounds (kx, dky, dkw, dkh); kx -= dkw + 18;
-        relKnob->setBounds (kx, dky, dkw, dkh); kx -= dkw + 18;
-        drvKnob->setBounds (kx, dky, dkw, dkh);
+        bool firstDk = true;
+        for (auto* k : { susKnob.get(), relKnob.get(), drvKnob.get() })
+        {
+            if (! k->isVisible()) continue;
+            kx -= dkw + (firstDk ? kgap : 18);
+            k->setBounds (kx, dky, dkw, dkh);
+            firstDk = false;
+        }
 
         // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
@@ -1314,6 +1370,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<juce::ParameterAttachment> gtrAtt;   // GUITAR mode (recolors on automation too)
     bool gtrOn = false;
     juce::Label lagLbl;   // Standalone: red "unavoidable lag" notice while GUITAR MODE is on
+    std::unique_ptr<bbe::SquareButton> smp;              // SIMPLE/EXPERT view key
+    bool simpleOn = false, stereoInst = false;
+    juce::Array<bbe::Strip*> hideInSimple;               // DI + room strips
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, widthKnob, drvKnob, relKnob, susKnob;
