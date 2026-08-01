@@ -15,16 +15,36 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 
 ## What's new in 1.0
 
-Out of beta.
+Out of beta — and the tone stack is finally *playable*, not just balance-able.
 
-- **GUITAR MODE** — the new GUITAR MODE key (top bar) pitches your input down a full octave *before* the whole tone stack: plug in a guitar, get a bass. The entire UI turns red so you always know which world you're in. Single notes and power chords track tight; complex chords warble a little, exactly like a hardware octaver. Engaging it adds ~32 ms of octave-tracking latency (reported to your DAW, which compensates on playback); switch it off and the plugin is zero-latency again. Presets don't touch it — it's "what's plugged in", not a tone. In the Standalone app there is no DAW to compensate, so a red notice reminds you the mode may incur unavoidable live lag.
-- **DRIVE, RELEASE and SUSTAIN dials** — the drive stage, opened up. DRIVE scales how hard every drive strip hits its clipper (100 % is the classic amount, exactly). The fuzz used to hug your note's decay so tightly it could read as a sidechain-style duck after each pluck; the new RELEASE dial (default 2.5 s, tuned by ear on real stems) lets the drive hang on and bloom instead. SUSTAIN adds upward compression inside the drive for even more hold. The trio lives left of INPUT and lights up when any drive is engaged. Old sessions keep their exact old sound automatically.
-- **Room FEED selects** — each ROOM strip now has a column of six keys choosing which layers feed that room (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them. All-on is the classic feed, so existing sessions are untouched.
-- **Master EQ** — a four-dial EQ column (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE for final shaping without leaving the plugin. Click a band's label to choose its frequency. At zero it is truly out of the circuit.
-- **WIDTH** — a mid/side image dial between GLUE and OUTPUT (0–200 %, stereo instances only). 100 % is the untouched classic image.
-- **SIMPLE / EXPERT view** — the header SIMPLE key trims the panel to the essentials (SUB, the clean pair, the FX strips, DRIVE and the master gains) and turns the accent amber so you always know which view you're in. It's a view, not a mode: everything hidden keeps running, and presets/sessions still set every control. EXPERT brings it all back.
-- **Cleaner strip names** — the legacy "LOW" prefix is gone: the clean bands are now CLEAN 15" and CLEAN 12" (named for the speakers they lean on) and the drive strips are FX 57, FX 421 and FX TWEETER. Names only — sessions, presets and automation are untouched.
-- All the v0.2.x features (DIST character, preset file loading, clean init defaults) are unchanged; FUZZ at the stock RELEASE remains byte-for-byte identical to every release before it.
+### The drive stage, opened up
+
+- **DRIVE** — how hard every drive strip hits its clipper, 25–400 % of the classic amount (100 % is the original FUZZ/DIST, exactly).
+- **RELEASE** — the fuzz used to hug your note's decay so tightly it could read as a sidechain-style duck after each pluck; RELEASE (default 2.5 s, tuned by ear on real stems) lets the drive hang on and bloom instead.
+- **SUSTAIN** — upward compression inside the drive: quieter tails come back louder.
+- **SATURATE** — the three FX strips clip together **as one bus** after their cabs, generating the cross-mic intermodulation a printed drive tone has and per-strip drive can't make. Level-compensated: it adds density, not volume.
+
+### Shape the result
+
+- **Master EQ** — four dials (LOW / LO MID / HI MID / HIGH, ±12 dB) after GLUE. Click a band's label to choose where its shelf/peak sits. At zero, truly out of the circuit.
+- **WIDTH** — a stereo spreader (0–100 %). Width is *generated* from the mostly-mono stack with the mono fold-down left mathematically untouched; lows stay centred.
+- **PAD** — every strip's headroom is now yours: −12 dB is the classic reference, 0 dB buys 12 more dB of ceiling when the fader runs out, −30 dB adds room for hot settings.
+- **Room FEED selects** — each ROOM strip chooses which layers feed it (SUB · 15" · 12" · 57 · 421 · TW). Rooms too boomy? Drop SUB out of them.
+
+### Two instruments, two views
+
+- **GUITAR MODE** — pitches your input down a full octave *before* the whole stack: plug in a guitar, get a bass. The whole UI turns red. ~32 ms of tracking latency, reported to the DAW (which compensates on playback); in the Standalone a red notice reminds you live lag is unavoidable there. Presets don't touch it — it's "what's plugged in", not a tone.
+- **SIMPLE / EXPERT** — SIMPLE trims the panel to the essentials and turns the accent amber. It's a view, not a mode: everything hidden keeps running, and presets still set every control.
+
+### Box Of Rules (Artist) presets
+
+The PRESET menu now carries the band's own printed tones — **Tax Wealth, Not Work** (Main / Verse / Heavy / Heavy Fuzz) — fitted against the actual record stems with a spectral-matching harness in `tools/`.
+
+### Housekeeping
+
+- Strip names dropped the legacy "LOW" prefix: CLEAN 15", CLEAN 12", FX 57, FX 421, FX TWEETER. Names only — sessions, presets and automation untouched.
+- Anonymous usage pings with a visible SYS opt-out — see [Does it phone home?](#how-it-works-tech-faq) for exactly what is (and isn't) sent.
+- Everything ships with the compatibility contract intact: old sessions load with their exact old sound, and FUZZ at the legacy settings remains byte-for-byte identical to every release before it.
 
 ## What's new in 0.2.x
 
@@ -80,13 +100,17 @@ Every layer is a channel strip with the same controls.
 
 In ALL view the spectrum draws two curves: the raw **DI** in grey and the processed **OUT** in cyan, so you can see exactly what the stack is adding.
 
-**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Init) plus a Save current option for your own. Saved presets are portable across projects. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
+**Presets:** the header PRESET menu has factory starting points (Hysterical, Subby, Clean Stack, Dirt Wall, Dist Stack, Init), your own saved presets under User, and the **Box Of Rules (Artist)** section — the band's printed *Tax Wealth, Not Work* tones, always there. Saved presets are portable across projects; loading any preset sets every control, including ones hidden by the SIMPLE view. Your full settings are also saved with the DAW project automatically, and via the host's own preset and A/B system.
+
+<!-- screenshot: assets/preset-menu.png — PRESET menu open showing Factory / User / Box Of Rules (Artist) -->
+<!-- screenshot: assets/simple-view.png — SIMPLE view (amber accent) -->
+<!-- screenshot: assets/guitar-mode.png — GUITAR MODE engaged (red accent) -->
 
 ## How it works (tech FAQ)
 
 The honest engineering answers, for those who asked.
 
-**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase → stereo sum → GLUE → master EQ → OUTPUT gain`. The ROOM layers are fed a blended sum of the voicing layers rather than the raw DI, the way a room hears a rig — and each room's FEED keys choose which layers are in that blend. The DI strip taps the input before INPUT gain, so it stays truly dry.
+**Signal flow.** `DI → INPUT gain → parallel layers (each: [optional fuzz stage] → convolution with a measured studio impulse response) → per-strip gain / pan / phase / PAD → [FX strips: combined-bus SATURATE] → stereo sum → GLUE → WIDTH → master EQ → OUTPUT gain`. The ROOM layers are fed a blended sum of the voicing layers rather than the raw DI, the way a room hears a rig — and each room's FEED keys choose which layers are in that blend. The DI strip taps the input before INPUT gain, so it stays truly dry.
 
 **What is each layer, really?** A measured impulse response of a real studio capture chain (instrument, amplification, transducer, and desk), one per frequency role, convolved in real time. The capture chain itself is the proprietary part and stays undisclosed.
 

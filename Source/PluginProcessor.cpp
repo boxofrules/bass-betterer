@@ -377,6 +377,9 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     roomFeed.allocate ((size_t) samplesPerBlock, true);
     fxBus.setSize (2, samplesPerBlock);
     smFxSat = 0.0f;
+    fxSatEnv  = 0.0f;
+    fxSatAtkC = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.003));   // 3 ms
+    fxSatRelC = 1.0f - std::exp (-1.0f / (float) (sampleRate * 0.150));   // 150 ms
 
     // WIDTH spreader state (6 ms mid delay, 250 Hz side low-cut)
     spreadLen = juce::jmax (1, (int) (sampleRate * 0.006));
@@ -729,19 +732,26 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     if (satOn)   // saturate the combined FX bus, blend in, add to the mix
     {
-        for (int ch = 0; ch < 2; ++ch)
+        // Envelope-normalise INTO the shaper (FuzzChain's AGC trick): the
+        // plugin's internal levels sit far below tanh's knee, so a raw tanh
+        // is near-linear — no harmonics. Normalised, the drive bites at any
+        // level; multiplying the envelope back restores dynamics/loudness,
+        // so the dial adds density, not volume. One max-of-L/R follower
+        // keeps the stereo image stable.
+        const float* srcL = fxBus.getReadPointer (0);
+        const float* srcR = fxBus.getReadPointer (1);
+        for (int s = 0; s < n; ++s)
         {
-            const float* src = fxBus.getReadPointer (ch);
-            float* dst = ch == 0 ? outL : outR;
-            for (int s = 0; s < n; ++s)
-            {
-                const float a    = smFxSat + (satAmt - smFxSat) * (float) (s + 1) * rampInc;
-                const float gdrv = 1.0f + 9.0f * a;
-                // tanh(gx)/g holds small-signal unity: the dial adds harmonics,
-                // not level; the a-blend makes the bottom of the dial gentle
-                const float x = src[s];
-                dst[s] += x + a * (std::tanh (gdrv * x) / gdrv - x);
-            }
+            const float a    = smFxSat + (satAmt - smFxSat) * (float) (s + 1) * rampInc;
+            const float gdrv = 1.0f + 9.0f * a;
+            const float xin  = juce::jmax (std::abs (srcL[s]), std::abs (srcR[s]));
+            fxSatEnv += (xin > fxSatEnv ? fxSatAtkC : fxSatRelC) * (xin - fxSatEnv);
+            const float e    = juce::jmax (fxSatEnv, 1.0e-4f);
+            const float norm = e / std::tanh (gdrv);
+            const float shpL = std::tanh (gdrv * (srcL[s] / e)) * norm;
+            const float shpR = std::tanh (gdrv * (srcR[s] / e)) * norm;
+            outL[s] += srcL[s] + a * (shpL - srcL[s]);
+            outR[s] += srcR[s] + a * (shpR - srcR[s]);
         }
     }
     smFxSat = satAmt;
@@ -982,34 +992,54 @@ using PV = std::pair<juce::String, float>;
 const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
 {
     static const std::vector<std::pair<juce::String, std::vector<PV>>> p = {
-        { "Init", {} },   // factory defaults
-        // FX gains sit |fuzz trim| above the pre-0.1.4 values (0/-3/-8): same tone,
-        // loudness-matched fuzz path. 421 wants +13.1 but the range caps at +12.
-        { "Hysterical", { {"in_gain",8.0f}, {"glue",0.55f},
-                          {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
-                          {"lofx57_gain",11.2f},{"lofx421_gain",12.0f},{"lofxtwt_gain",3.4f},
-                          {"lowcln1_gain",-4.0f},{"lowcln2_gain",-9.0f} } },
-        { "Subby", { {"glue",0.2f},
-                     {"lofx57_mute",1.0f},{"lofx421_mute",1.0f},{"lofxtwt_mute",1.0f},
-                     {"sub_gain",2.0f},{"lowcln1_gain",-1.0f},{"lowcln2_gain",-5.0f} } },
-        { "Clean Stack", { {"glue",0.25f},
-                           {"lofx57_fuzz",0.0f},{"lofx421_fuzz",0.0f},{"lofxtwt_fuzz",0.0f},
-                           {"lofx57_gain",-6.0f},{"lofx421_gain",-9.0f},{"lofxtwt_gain",-15.0f},
-                           {"roomnear_mute",0.0f},{"roomnear_gain",-26.0f} } },
-        // v0.2.0: was "Dirt Duck" — the sidechain duck left the free plugin,
-        // and a preset must not be named for a move it no longer makes. The
-        // lows are tucked by fader instead.
-        { "Dirt Wall", { {"in_gain",4.0f},{"glue",0.4f},
-                         {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
-                         {"sub_gain",-3.0f},{"lowcln1_gain",-5.0f},{"lowcln2_gain",-8.0f} } },
-        // v0.2.0: the DIST character across the FX strips — tighter and
-        // brighter than Dirt Wall's fuzz, the low bed pulled back so the mids
-        // own the drive. (v0.2.1: Crunch Air left with the octave layers —
-        // they are premium now.)
-        { "Dist Stack", { {"in_gain",3.0f},{"glue",0.35f},
-                          {"lofx57_fuzz",1.0f},{"lofx421_fuzz",1.0f},{"lofxtwt_fuzz",1.0f},
-                          {"lofx57_drivetype",1.0f},{"lofx421_drivetype",1.0f},{"lofxtwt_drivetype",1.0f},
-                          {"lowcln1_gain",-4.0f},{"lowcln2_gain",-7.0f} } },
+        // re-fitted 2026-08-01 (v3: with SATURATE + PADs in the search) against
+        // the band's printed TWNW stems; mean band errors ~2-2.5 dB. Values are
+        // the tool's printout, defaults omitted.
+        { "Tax Wealth, Not Work - Main",
+          { {"in_gain",-11.3f},{"drive_amt",50.0f},{"drive_rel",1000.0f},{"fx_sat",10.0f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",2.0f},{"lofx57_pad",2.0f},
+            {"lofx421_fuzz",1.0f},{"lofx421_gain",-24.0f},{"lofx421_pad",0.0f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
+            {"sub_gain",-2.6f},{"sub_pad",2.0f},
+            {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
+            {"roomnear_gain",-29.3f},
+            {"eq_low",1.8f},{"eq_low_freq",1.0f},{"eq_lomid",2.3f},{"eq_lomid_freq",3.0f},
+            {"eq_himid",5.5f},{"eq_himid_freq",2.0f},{"eq_high",-0.8f},{"eq_high_freq",3.0f},
+            {"out_gain",6.8f} } },
+        { "Tax Wealth, Not Work - Verse",
+          { {"in_gain",-1.1f},{"drive_amt",38.0f},{"drive_rel",250.0f},{"fx_sat",10.0f},{"glue",1.0f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",3.5f},{"lofx57_pad",2.0f},
+            {"lofx421_fuzz",1.0f},{"lofx421_gain",9.8f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
+            {"sub_gain",3.0f},{"sub_pad",2.0f},
+            {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
+            {"roomnear_gain",-24.8f},
+            {"eq_low",-2.0f},{"eq_low_freq",3.0f},{"eq_lomid",-7.8f},{"eq_lomid_freq",2.0f},
+            {"eq_himid",5.3f},{"eq_himid_freq",2.0f},{"eq_high",-1.5f},{"eq_high_freq",0.0f},
+            {"out_gain",2.5f} } },
+        { "Tax Wealth, Not Work - Heavy",
+          { {"di_mute",0.0f},{"di_gain",-1.9f},{"in_gain",-12.0f},{"drive_amt",106.0f},
+            {"drive_rel",250.0f},{"fx_sat",15.0f},{"glue",0.44f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",3.8f},{"lofx57_pad",2.0f},
+            {"lofx421_gain",7.9f},{"lofx421_pad",2.0f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",11.6f},{"lofxtwt_pad",2.0f},
+            {"sub_gain",-4.1f},
+            {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
+            {"eq_low",0.5f},{"eq_low_freq",2.0f},{"eq_lomid",-4.3f},{"eq_lomid_freq",3.0f},
+            {"eq_himid",4.8f},{"eq_himid_freq",2.0f},{"eq_high",-3.0f},{"eq_high_freq",3.0f},
+            {"out_gain",2.5f} } },
+        { "Tax Wealth, Not Work - Heavy Fuzz",
+          { {"di_mute",0.0f},{"di_gain",4.1f},{"in_gain",4.1f},{"drive_amt",113.0f},
+            {"drive_rel",250.0f},{"fx_sat",10.0f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",5.3f},{"lofx57_pad",2.0f},
+            {"lofx421_fuzz",1.0f},{"lofx421_gain",10.1f},{"lofx421_pad",2.0f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},{"lofxtwt_pad",2.0f},
+            {"sub_gain",5.3f},{"sub_pad",2.0f},
+            {"lowcln1_gain",-24.0f},{"lowcln1_pad",0.0f},{"lowcln2_gain",-24.0f},{"lowcln2_pad",0.0f},
+            {"roomnear_gain",-14.3f},
+            {"eq_low",-5.0f},{"eq_low_freq",2.0f},{"eq_lomid",-5.5f},{"eq_lomid_freq",2.0f},
+            {"eq_himid",6.5f},{"eq_himid_freq",2.0f},{"eq_high",-1.8f},{"eq_high_freq",0.0f},
+            {"out_gain",-11.3f} } },
     };
     return p;
 }

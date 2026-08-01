@@ -169,6 +169,7 @@ private:
     std::atomic<float>* pFxSat    = nullptr;   // SAT dial (combined FX-bus saturation)
     float smFxSat = 0.0f;
     juce::AudioBuffer<float> fxBus;            // FX strips' sub-bus while SAT is engaged
+    float fxSatEnv = 0.0f, fxSatAtkC = 0.0f, fxSatRelC = 0.0f;   // shaper AGC follower
     float smWidth = 0.0f;
     juce::HeapBlock<float> spreadBuf;          // spreader: 6 ms mid delay + side low-cut
     int   spreadLen = 1, spreadW = 0;
