@@ -763,17 +763,28 @@ struct InfoPanel : public juce::Component
 
         // the contract-required visible opt-out for the anonymous usage pings
         statsBtn = std::make_unique<SquareButton> ("USAGE STATS", accent, bor::accentOn);
-        statsBtn->setTooltip ("Share anonymous usage stats (random install id only — no personal "
-                              "data, no audio, no IPs stored). Click to opt out or back in.");
+        statsBtn->setTooltip ("Share anonymous usage stats: which presets and controls get used, "
+                              "batched and sent hourly. A random install id only — no personal "
+                              "data, no audio, no IPs stored. Click to opt out or back in; "
+                              "full details under PRIVACY.");
         statsBtn->setToggleState (bbeStats::enabled(), juce::dontSendNotification);
         statsBtn->onClick = [this] { bbeStats::setEnabled (statsBtn->getToggleState()); };
         addAndMakeVisible (*statsBtn);
+
+        privacyBtn = std::make_unique<SquareButton> ("PRIVACY", accent, bor::accentOn);
+        privacyBtn->setTooltip ("What the usage stats contain and how they are handled — "
+                                "boxofrules.com/privacy");
+        privacyBtn->setClickingTogglesState (false);
+        privacyBtn->onClick = []
+        { juce::URL ("https://boxofrules.com/privacy?src=plugin").launchInDefaultBrowser(); };
+        addAndMakeVisible (*privacyBtn);
     }
 
     void resized() override
     {
         copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20);
         statsBtn->setBounds (16, getHeight() - 31, 110, 20);
+        privacyBtn->setBounds (132, getHeight() - 31, 74, 20);
     }
 
     // each line is "KEY|value"
@@ -804,7 +815,7 @@ struct InfoPanel : public juce::Component
 
     std::function<void()> onDismiss;
     juce::StringArray lines;
-    std::unique_ptr<SquareButton> copyBtn, statsBtn;
+    std::unique_ptr<SquareButton> copyBtn, statsBtn, privacyBtn;
     juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
 };
 
@@ -963,7 +974,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         // A/B audition — a listening tool, deliberately not a saved parameter
         strips[0]->ab->setToggleState (proc.getDiReference(), juce::dontSendNotification);
-        strips[0]->ab->onClick = [this] { proc.setDiReference (strips[0]->ab->getToggleState()); };
+        strips[0]->ab->onClick = [this]
+        {
+            const bool on = strips[0]->ab->getToggleState();
+            proc.setDiReference (on);
+            if (on) bbeStats::send ("ab_reference_used");
+        };
 
         analyzer = std::make_unique<bbe::Analyzer>();
         addAndMakeVisible (*analyzer);
@@ -1100,6 +1116,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             simpleOn = ! simpleOn;
             proc.apvts.state.setProperty ("uiMode", simpleOn ? "simple" : "expert", nullptr);
             applyMode();
+            bbeStats::send ("view_mode_changed", { { "mode", simpleOn ? "simple" : "expert" } });
         };
         addAndMakeVisible (*smp);
 
@@ -1130,7 +1147,11 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                     applyTheme();
                 });
                 gtrAtt->sendInitialUpdate();
-                gtr->onClick = [this] { gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f); };
+                gtr->onClick = [this]
+                {
+                    gtrAtt->setValueAsCompleteGesture (gtrOn ? 0.0f : 1.0f);
+                    if (! gtrOn) bbeStats::send ("guitar_mode_engaged");
+                };
             }
         }
 
@@ -1391,14 +1412,21 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         if (sel >= 1 && sel <= factoryCount)
         {
             proc.loadFactoryPreset (sel - 1);
+            // factory/artist preset names are ours (public), user preset names
+            // are not — those report type only (no names, per the contract)
+            bbeStats::send ("preset_loaded",
+                            { { "type", "factory" }, { "name", proc.getFactoryPresetNames()[sel - 1] } });
         }
         else if (sel >= 100 && sel < 100 + userFiles.size())
         {
             proc.loadUserPresetFile (userFiles[sel - 100]);
+            bbeStats::send ("preset_loaded", { { "type", "user" } });
         }
         else if (sel >= 200 && sel < 200 + artistCount)
         {
             proc.loadArtistPreset (sel - 200);
+            bbeStats::send ("preset_loaded",
+                            { { "type", "artist" }, { "name", proc.getArtistPresetNames()[sel - 200] } });
         }
         else if (sel == 1000)
         {
@@ -1418,7 +1446,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 if (r == 1)
                 {
                     const auto nm = safe->saveWin->getTextEditorContents ("name").trim();
-                    if (nm.isNotEmpty()) { safe->proc.saveUserPreset (nm); safe->rebuildPresetMenu(); }
+                    if (nm.isNotEmpty())
+                    {
+                        safe->proc.saveUserPreset (nm);
+                        safe->rebuildPresetMenu();
+                        bbeStats::send ("preset_saved");   // count only — never the name
+                    }
                 }
                 safe->saveWin.reset();
             }), false);
@@ -1597,11 +1630,14 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::SquareButton> smp;              // SIMPLE/EXPERT view key
     bool simpleOn = false, stereoInst = false;
     juce::Array<bbe::Strip*> hideInSimple;               // DI + room strips
-    bbe::SocialIcon igLink   { bbe::SocialIcon::instagram,  "Instagram",      juce::URL ("https://www.instagram.com/boxofrules/") };
-    bbe::SocialIcon ttLink   { bbe::SocialIcon::tiktok,     "TikTok",         juce::URL ("https://www.tiktok.com/@boxofrules") };
-    bbe::SocialIcon ytLink   { bbe::SocialIcon::youtube,    "YouTube",        juce::URL ("https://www.youtube.com/channel/UCorxaWgCBTGR5z7A-Njq28A") };
-    bbe::SocialIcon spLink   { bbe::SocialIcon::spotify,    "Spotify",        juce::URL ("https://open.spotify.com/artist/65zSav74IPYqtdPjdXkbSt") };
-    bbe::SocialIcon amLink   { bbe::SocialIcon::appleMusic, "Apple Music",    juce::URL ("https://music.apple.com/au/artist/box-of-rules/1824671490") };
+    // Through the site's tracked redirects (boxofrules.com/{name}?src=plugin):
+    // the site logs the click server-side (no IP) and mirrors it into GA4,
+    // then 302s to the real profile. Destinations are editable in the site CMS.
+    bbe::SocialIcon igLink   { bbe::SocialIcon::instagram,  "Instagram",      juce::URL ("https://boxofrules.com/instagram?src=plugin") };
+    bbe::SocialIcon ttLink   { bbe::SocialIcon::tiktok,     "TikTok",         juce::URL ("https://boxofrules.com/tiktok?src=plugin") };
+    bbe::SocialIcon ytLink   { bbe::SocialIcon::youtube,    "YouTube",        juce::URL ("https://boxofrules.com/youtube?src=plugin") };
+    bbe::SocialIcon spLink   { bbe::SocialIcon::spotify,    "Spotify",        juce::URL ("https://boxofrules.com/spotify?src=plugin") };
+    bbe::SocialIcon amLink   { bbe::SocialIcon::appleMusic, "Apple Music",    juce::URL ("https://boxofrules.com/apple?src=plugin") };
     bbe::SocialIcon siteLink { bbe::SocialIcon::site,       "boxofrules.com", juce::URL ("https://boxofrules.com/?utm_source=bass-betterer&utm_medium=plugin") };
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;

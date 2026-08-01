@@ -105,6 +105,7 @@ target_compile_definitions(BoRBassEnhancer PUBLIC
 target_link_libraries(BoRBassEnhancer PRIVATE
     BoREnhancerIR
     juce::juce_audio_utils
+    juce::juce_cryptography
     juce::juce_dsp
     PUBLIC
     juce::juce_recommended_config_flags
