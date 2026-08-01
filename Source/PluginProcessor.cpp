@@ -932,6 +932,70 @@ const std::vector<std::pair<juce::String, std::vector<PV>>>& factoryPresets()
 }
 }
 
+namespace {
+// ---- Box Of Rules (Artist) presets ------------------------------------------
+// The band's own printed tones, fitted with tools/preset_match.cpp: the DI is
+// rendered through the engine and the preset surface coordinate-descended to
+// minimise 1/6-octave log-spectrum distance to the print, loudness baked into
+// out_gain. Always in the PRESET menu (under User). Regenerate with
+// bor-preset-match if the voicings ever change.
+const std::vector<std::pair<juce::String, std::vector<PV>>>& artistPresets()
+{
+    static const std::vector<std::pair<juce::String, std::vector<PV>>> p = {
+        // fitted 2026-08-01 against the band's printed TWNW tones (mean band
+        // errors ~2-3 dB); values are the tool's printout, defaults omitted
+        { "Tax Wealth, Not Work - Main",
+          { {"drive_amt",25.0f},{"glue",0.25f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",6.8f},
+            {"lofx421_fuzz",1.0f},{"lofx421_drivetype",1.0f},{"lofx421_gain",-11.3f},
+            {"lofxtwt_gain",12.0f},
+            {"sub_gain",-8.6f},{"lowcln1_gain",-24.0f},{"lowcln2_gain",-15.9f},
+            {"eq_low",4.5f},{"eq_low_freq",0.0f},{"eq_lomid",-3.0f},{"eq_lomid_freq",2.0f},
+            {"eq_himid",4.3f},{"eq_himid_freq",2.0f},{"eq_high",4.0f},{"eq_high_freq",3.0f},
+            {"out_gain",6.7f} } },
+        { "Tax Wealth, Not Work - Verse",
+          { {"in_gain",-10.9f},{"drive_amt",69.0f},{"glue",0.06f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",2.7f},
+            {"lofx421_fuzz",1.0f},{"lofx421_gain",9.2f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},
+            {"sub_gain",6.4f},{"lowcln1_gain",-24.0f},{"lowcln2_gain",-24.0f},
+            {"eq_low",3.0f},{"eq_low_freq",0.0f},{"eq_lomid",-6.5f},{"eq_lomid_freq",1.0f},
+            {"eq_himid",6.5f},{"eq_himid_freq",2.0f},{"eq_high",2.3f},{"eq_high_freq",1.0f},
+            {"out_gain",12.7f} } },
+        { "Tax Wealth, Not Work - Heavy",
+          { {"di_mute",0.0f},{"di_gain",0.4f},{"in_gain",-4.5f},{"drive_amt",400.0f},{"glue",0.03f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",8.3f},
+            {"lofx421_fuzz",1.0f},{"lofx421_drivetype",1.0f},{"lofx421_gain",-6.8f},
+            {"lofxtwt_gain",12.0f},
+            {"sub_gain",-6.4f},{"lowcln1_gain",-24.0f},{"lowcln2_gain",2.1f},{"roomnear_gain",-36.8f},
+            {"eq_low",0.3f},{"eq_low_freq",0.0f},{"eq_lomid",-7.0f},{"eq_lomid_freq",2.0f},
+            {"eq_himid",4.5f},{"eq_himid_freq",3.0f},{"eq_high",1.0f},{"eq_high_freq",2.0f},
+            {"out_gain",4.0f} } },
+        { "Tax Wealth, Not Work - Heavy Fuzz",
+          { {"di_mute",0.0f},{"di_gain",-4.1f},{"in_gain",-2.6f},{"drive_amt",81.0f},{"glue",0.41f},
+            {"lofx57_fuzz",1.0f},{"lofx57_drivetype",1.0f},{"lofx57_gain",2.0f},
+            {"lofx421_fuzz",1.0f},{"lofx421_gain",10.5f},
+            {"lofxtwt_fuzz",1.0f},{"lofxtwt_gain",12.0f},
+            {"sub_gain",-4.5f},{"lowcln1_gain",-24.0f},{"lowcln2_gain",-18.5f},{"roomfar_gain",-15.8f},
+            {"eq_low",3.8f},{"eq_low_freq",1.0f},{"eq_lomid",-9.0f},{"eq_lomid_freq",2.0f},
+            {"eq_himid",7.3f},{"eq_himid_freq",2.0f},{"eq_high",1.8f},{"eq_high_freq",1.0f},
+            {"out_gain",1.8f} } },
+    };
+    return p;
+}
+
+void applyPresetValues (BoRBassEnhancerProcessor& proc, const std::vector<PV>& vals)
+{
+    for (auto* p : proc.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (rp->paramID != "guitar_mode")   // presets are tones; GUITAR mode is what's plugged in
+                rp->setValueNotifyingHost (rp->getDefaultValue());
+    for (auto& kv : vals)
+        if (auto* p = proc.apvts.getParameter (kv.first))
+            p->setValueNotifyingHost (p->convertTo0to1 (kv.second));
+}
+} // namespace
+
 juce::StringArray BoRBassEnhancerProcessor::getFactoryPresetNames() const
 {
     juce::StringArray a;
@@ -943,13 +1007,21 @@ void BoRBassEnhancerProcessor::loadFactoryPreset (int index)
 {
     auto& list = factoryPresets();
     if (index < 0 || index >= (int) list.size()) return;
-    for (auto* p : getParameters())
-        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
-            if (rp->paramID != "guitar_mode")   // presets are tones; GUITAR mode is what's plugged in
-                rp->setValueNotifyingHost (rp->getDefaultValue());
-    for (auto& kv : list[(size_t) index].second)
-        if (auto* p = apvts.getParameter (kv.first))
-            p->setValueNotifyingHost (p->convertTo0to1 (kv.second));
+    applyPresetValues (*this, list[(size_t) index].second);
+}
+
+juce::StringArray BoRBassEnhancerProcessor::getArtistPresetNames() const
+{
+    juce::StringArray a;
+    for (auto& pr : artistPresets()) a.add (pr.first);
+    return a;
+}
+
+void BoRBassEnhancerProcessor::loadArtistPreset (int index)
+{
+    auto& list = artistPresets();
+    if (index < 0 || index >= (int) list.size()) return;
+    applyPresetValues (*this, list[(size_t) index].second);
 }
 
 juce::File BoRBassEnhancerProcessor::getUserPresetDir() const

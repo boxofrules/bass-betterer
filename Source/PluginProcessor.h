@@ -91,6 +91,8 @@ public:
     // these add portable named configs: a handful of factory presets + user save/recall to disk.
     juce::StringArray getFactoryPresetNames() const;
     void loadFactoryPreset (int index);
+    juce::StringArray getArtistPresetNames() const;   // "Box Of Rules (Artist)" menu section
+    void loadArtistPreset (int index);
     juce::File getUserPresetDir() const;
     bool saveUserPreset (const juce::String& name);
     bool loadUserPresetFile (const juce::File&);

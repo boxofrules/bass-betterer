@@ -1,5 +1,6 @@
 // Bass Better-er — © 2026 Box of Rules. Source-available, proprietary — see LICENSE.
 #include "PluginEditor.h"
+#include "Analytics.h"
 #include <cmath>
 
 #ifndef JucePlugin_VersionString
@@ -690,9 +691,21 @@ struct InfoPanel : public juce::Component
                                               { if (sp != nullptr) sp->setButtonText ("COPY"); });
         };
         addAndMakeVisible (*copyBtn);
+
+        // the contract-required visible opt-out for the anonymous usage pings
+        statsBtn = std::make_unique<SquareButton> ("USAGE STATS", accent, bor::accentOn);
+        statsBtn->setTooltip ("Share anonymous usage stats (random install id only — no personal "
+                              "data, no audio, no IPs stored). Click to opt out or back in.");
+        statsBtn->setToggleState (bbeStats::enabled(), juce::dontSendNotification);
+        statsBtn->onClick = [this] { bbeStats::setEnabled (statsBtn->getToggleState()); };
+        addAndMakeVisible (*statsBtn);
     }
 
-    void resized() override { copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20); }
+    void resized() override
+    {
+        copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20);
+        statsBtn->setBounds (16, getHeight() - 31, 110, 20);
+    }
 
     // each line is "KEY|value"
     void setLines (juce::StringArray l) { if (l != lines) { lines = std::move (l); repaint(); } }
@@ -722,7 +735,7 @@ struct InfoPanel : public juce::Component
 
     std::function<void()> onDismiss;
     juce::StringArray lines;
-    std::unique_ptr<SquareButton> copyBtn;
+    std::unique_ptr<SquareButton> copyBtn, statsBtn;
     juce::Colour accent { bor::accent };   // per-editor theme (GUITAR mode = red)
 };
 
@@ -889,6 +902,31 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             pStripFuzz[(size_t) fi++] = proc.apvts.getRawParameterValue (juce::String (id) + "_fuzz");
         refreshDriveDials();
 
+        // Social links, footer bottom-right. Direct URLs; the click itself is
+        // counted as an anonymous `link_click` event (Analytics.h) — no
+        // redirect hop needed. The site link carries utm for GA4 attribution.
+        {
+            const std::pair<juce::HyperlinkButton*, const char*> socials[] =
+                { { &igLink, "instagram" }, { &ttLink, "tiktok" }, { &siteLink, "site" } };
+            for (const auto& [l, tag] : socials)
+            {
+                l->setColour (juce::HyperlinkButton::textColourId, bor::mute2);
+                l->setFont (bor::mono (10.0f, true), false, juce::Justification::centred);
+                l->onClick = [t = juce::String (tag)] { bbeStats::send ("link_click", { { "target", t } }); };
+                addAndMakeVisible (*l);
+            }
+        }
+
+        // anonymous launch ping — once per process run, not per editor open
+        // (see Analytics.h; the SYS USAGE STATS key is the opt-out)
+        static bool sentLaunch = false;
+        if (! sentLaunch && bbeStats::enabled())
+        {
+            sentLaunch = true;
+            bbeStats::send ("plugin_launched",
+                            { { "format", juce::AudioProcessor::getWrapperTypeDescription (proc.wrapperType) } });
+        }
+
         // SIMPLE/EXPERT — a VIEW, not a parameter: presets and sessions still
         // set every hidden control's value; SIMPLE only trims what is shown
         // (no DI/ROOM strips, no EQ column, no RELEASE/SUSTAIN/WIDTH) and
@@ -956,7 +994,8 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         for (auto* s : strips) s->setAccent (a);
         analyzer->accent = a;
         info->accent = a;
-        info->copyBtn->onBg = a;
+        info->copyBtn->onBg  = a;
+        info->statsBtn->onBg = a;
         freq->onBg = a;
         sys->onBg  = a;
         logo->setAccent (a);
@@ -1168,6 +1207,14 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
             for (int i = 0; i < userFiles.size(); ++i)
                 presetBox.addItem (userFiles[i].getFileNameWithoutExtension(), 100 + i);
         }
+        auto art = proc.getArtistPresetNames();   // always present, under User
+        artistCount = art.size();
+        if (artistCount > 0)
+        {
+            presetBox.addSeparator();
+            presetBox.addSectionHeading ("Box Of Rules (Artist)");
+            for (int i = 0; i < art.size(); ++i) presetBox.addItem (art[i], 200 + i);
+        }
         presetBox.addSeparator();
         presetBox.addItem (juce::String::fromUTF8 ("Save current\xE2\x80\xA6"), 1000);
         presetBox.addItem (juce::String::fromUTF8 ("Load preset file\xE2\x80\xA6"), 1001);
@@ -1183,6 +1230,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         else if (sel >= 100 && sel < 100 + userFiles.size())
         {
             proc.loadUserPresetFile (userFiles[sel - 100]);
+        }
+        else if (sel >= 200 && sel < 200 + artistCount)
+        {
+            proc.loadArtistPreset (sel - 200);
         }
         else if (sel == 1000)
         {
@@ -1348,6 +1399,15 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         lagLbl.setBounds (padX, getHeight() - 30, 420, 18);   // footer, bottom-left
 
+        // social links, footer bottom-right
+        int sx = getWidth() - padX;
+        const std::pair<juce::HyperlinkButton*, int> links[] = { { &siteLink, 118 }, { &ttLink, 56 }, { &igLink, 84 } };
+        for (auto& [l, w] : links)
+        {
+            l->setBounds (sx - w, getHeight() - 30, w, 18);
+            sx -= w + 14;
+        }
+
         footRuleY = r.getY();
     }
 
@@ -1360,7 +1420,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::HexLogo> logo;
     juce::Label wordmark, modeLbl;
     juce::ComboBox presetBox;
-    int factoryCount = 0;
+    int factoryCount = 0, artistCount = 0;
     juce::Array<juce::File> userFiles;
     std::unique_ptr<juce::AlertWindow> saveWin;
     std::unique_ptr<juce::FileChooser> fileChooser;   // v0.2.0 preset-file loader (async)
@@ -1373,6 +1433,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::SquareButton> smp;              // SIMPLE/EXPERT view key
     bool simpleOn = false, stereoInst = false;
     juce::Array<bbe::Strip*> hideInSimple;               // DI + room strips
+    juce::HyperlinkButton igLink   { "INSTAGRAM",      juce::URL ("https://www.instagram.com/boxofrules/") };
+    juce::HyperlinkButton ttLink   { "TIKTOK",         juce::URL ("https://www.tiktok.com/@boxofrules") };
+    juce::HyperlinkButton siteLink { "BOXOFRULES.COM", juce::URL ("https://boxofrules.com/?utm_source=bass-betterer&utm_medium=plugin") };
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
     std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, widthKnob, drvKnob, relKnob, susKnob;
