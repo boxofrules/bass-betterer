@@ -305,7 +305,7 @@ struct Strip : public juce::Component
             }};
             for (size_t v = 0; v < 6; ++v)
             {
-                srcTogs[v] = makeTog (srcs[v][1], bor::bone, bor::ink,
+                srcTogs[v] = makeTog (srcs[v][1], accent, bor::accentOn,
                                       juce::String ("Feed ") + srcs[v][2] + " into this room");
                 srcAtts[v] = std::make_unique<BA> (p.apvts, prefix + "_src_" + srcs[v][0], *srcTogs[v]);
             }
@@ -338,6 +338,7 @@ struct Strip : public juce::Component
         accent = a;
         if (solo != nullptr) solo->onBg = a;
         if (fuzz != nullptr) fuzz->onBg = a;
+        for (auto& t : srcTogs) if (t != nullptr) t->onBg = a;
         refreshMuted();   // re-pushes fader track/thumb + repaints the strip
     }
 
