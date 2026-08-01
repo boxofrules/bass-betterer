@@ -65,7 +65,11 @@ struct SquareButton : public juce::Button
     juce::Colour onBg, onFg;
 };
 
-// ---- schematic vertical fader (track + accent fill + square cap) ------------
+// ---- schematic vertical fader (track + accent fill + physical cap) ----------
+// v1.0: the premium F5 control-polish pass, ported drawing-only — rounded
+// gradient cap with grip ridges, seat shadow, top catchlight. The slider
+// geometry/hit-area is untouched (no thumb-radius override here: that part of
+// the premium LnF belongs to its meter-scale alignment, not the look).
 struct FaderLnf : public juce::LookAndFeel_V4
 {
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -77,20 +81,66 @@ struct FaderLnf : public juce::LookAndFeel_V4
         g.fillRect (cx - 1.0f, top, 2.0f, (float) height);
         g.setColour (s.findColour (juce::Slider::trackColourId));
         g.fillRect (cx - 1.0f, sliderPos, 2.0f, bot - sliderPos);
-        const float cap = 18.0f;
-        juce::Rectangle<float> capR (cx - cap * 0.5f, sliderPos - cap * 0.5f, cap, cap);
-        g.setColour (s.findColour (juce::Slider::thumbColourId));
-        g.fillRect (capR);
-        if (s.isMouseOverOrDragging()) { g.setColour (bor::bone); g.drawRect (capR.expanded (2.0f), 1.0f); }
+
+        const float w = 26.0f, h = 16.0f, rad = 3.0f;
+        juce::Rectangle<float> capR (cx - w * 0.5f, sliderPos - h * 0.5f, w, h);
+        const auto thumb = s.findColour (juce::Slider::thumbColourId);
+        g.setColour (juce::Colours::black.withAlpha (0.40f));                 // seat shadow
+        g.fillRoundedRectangle (capR.translated (0.0f, 1.2f), rad);
+        juce::ColourGradient body (thumb.brighter (0.18f), capR.getX(), capR.getY(),
+                                   thumb.darker (0.30f),   capR.getX(), capR.getBottom(), false);
+        g.setGradientFill (body);
+        g.fillRoundedRectangle (capR, rad);
+        g.setColour (bor::ink.withAlpha (0.55f));                             // grip ridges
+        for (int i = -1; i <= 1; ++i)
+            g.fillRect (capR.getX() + 5.0f, capR.getCentreY() + (float) i * 3.5f - 0.5f,
+                        capR.getWidth() - 10.0f, 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.22f));                 // top catchlight
+        g.drawLine (capR.getX() + rad, capR.getY() + 0.75f,
+                    capR.getRight() - rad, capR.getY() + 0.75f, 0.8f);
+        g.setColour (bor::ink.withAlpha (0.9f));
+        g.drawRoundedRectangle (capR, rad, 1.0f);
+        if (s.isMouseOverOrDragging()) { g.setColour (bor::bone); g.drawRoundedRectangle (capR.expanded (2.0f), rad + 1.0f, 1.0f); }
     }
 };
 
-// ---- arc rotary (outline circle, accent arc, bone pointer) ------------------
-// `accent` is a per-instance member (not bor::accent directly) so GUITAR mode
-// can recolor this editor without touching other open instances.
+// ---- arc rotary (outline circle, accent arc, physical cap + bone pointer) ---
+// v1.0: premium F5 polish, drawing-only — every rotary reads as PHYSICAL,
+// echoing FaderLnf's material language: seat shadow under the cap, quiet
+// vertical gradient body, top-biased radial catchlight, hairline ink rim,
+// crisp bone pointer. `accent` stays a per-instance member (not bor::accent
+// directly) so GUITAR mode can recolor this editor without touching other
+// open instances.
 struct KnobLnf : public juce::LookAndFeel_V4
 {
     juce::Colour accent { bor::accent };
+
+    // the shared cap: drawn INSIDE the value arc by both knob LnFs
+    static void drawCap (juce::Graphics& g, float cx, float cy, float r, float toAngle)
+    {
+        const float capR = juce::jmax (3.0f, r - 3.5f);
+        juce::Rectangle<float> cap (cx - capR, cy - capR, capR * 2.0f, capR * 2.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.40f));               // seat shadow
+        g.fillEllipse (cap.translated (0.0f, 1.2f));
+        juce::ColourGradient body (bor::ink3.brighter (0.28f), cx, cy - capR,
+                                   bor::ink3.darker (0.35f),   cx, cy + capR, false);
+        g.setGradientFill (body);
+        g.fillEllipse (cap);
+        {   // top-left catchlight, radial and quiet (machined metal, not gloss)
+            juce::ColourGradient sheen (juce::Colours::white.withAlpha (0.10f),
+                                        cx - capR * 0.35f, cy - capR * 0.5f,
+                                        juce::Colours::transparentWhite,
+                                        cx + capR * 0.4f,  cy + capR * 0.7f, true);
+            g.setGradientFill (sheen);
+            g.fillEllipse (cap);
+        }
+        g.setColour (bor::ink.withAlpha (0.9f));                            // hairline rim
+        g.drawEllipse (cap, 1.0f);
+        const float sa = std::sin (toAngle), ca = std::cos (toAngle);       // crisp pointer
+        g.setColour (bor::bone);
+        g.drawLine (cx + sa * capR * 0.35f, cy - ca * capR * 0.35f,
+                    cx + sa * (capR - 1.5f), cy - ca * (capR - 1.5f), 2.0f);
+    }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float pos, float startAngle, float endAngle, juce::Slider&) override
@@ -105,11 +155,7 @@ struct KnobLnf : public juce::LookAndFeel_V4
         arc.addCentredArc (cx, cy, r, r, 0.0f, startAngle, toAngle, true);
         g.setColour (accent);
         g.strokePath (arc, juce::PathStrokeType (2.0f));
-        const float px = cx + std::sin (toAngle) * (r - 4.0f);
-        const float py = cy - std::cos (toAngle) * (r - 4.0f);
-        g.setColour (bor::bone);
-        g.drawLine (cx, cy, px, py, 2.0f);
-        g.fillEllipse (cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+        drawCap (g, cx, cy, r, toAngle);
     }
 };
 
@@ -117,7 +163,7 @@ struct KnobLnf : public juce::LookAndFeel_V4
 // A pan is L<->R, not 0..max. The shared KnobLnf sweeps its arc from the start
 // (bottom-left) to the pointer, which reads like a level fill. Here the arc
 // instead grows either side of the centre detent (silent at dead-centre), so it
-// reads unambiguously as pan; the bone pointer + dot are kept.
+// reads unambiguously as pan; the physical cap + bone pointer are shared.
 struct PanLnf : public KnobLnf
 {
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -135,11 +181,7 @@ struct PanLnf : public KnobLnf
                            juce::jmin (midAngle, toAngle), juce::jmax (midAngle, toAngle), true);
         g.setColour (accent);
         g.strokePath (arc, juce::PathStrokeType (2.0f));
-        const float px = cx + std::sin (toAngle) * (r - 4.0f);
-        const float py = cy - std::cos (toAngle) * (r - 4.0f);
-        g.setColour (bor::bone);
-        g.drawLine (cx, cy, px, py, 2.0f);
-        g.fillEllipse (cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+        drawCap (g, cx, cy, r, toAngle);
     }
 };
 
