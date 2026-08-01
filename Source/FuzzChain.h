@@ -92,12 +92,33 @@ struct FuzzChain
     // base-rate latency the 4x oversampler adds to this path (sub-sample for the IIR halfband)
     float oversamplingLatency() const { return os != nullptr ? os->getLatencyInSamples() : 0.0f; }
 
+    // Reshape the AGC envelope (the RELEASE/SUSTAIN dials). At the locked
+    // drive amounts the clipper saturates fully, so after the restore-multiply
+    // the strip's output envelope IS the AGC follower: a fast release falls
+    // from each pluck's attack peak down to the body level (heard as a
+    // sidechain-style duck) and then tracks the DI's decay instead of
+    // sustaining. Slower release flattens that dip; restoreExp < 1 restores
+    // env^exp so the strip's dynamics compress upward (more even sustain).
+    // 5 ms / 250 ms / 1.0 reproduces every pre-v1 render byte-identically.
+    void setEnvShape (float atkSeconds, float relSeconds, float restoreExponent)
+    {
+        if (juce::exactlyEqual (atkSeconds, atkSec) && juce::exactlyEqual (relSeconds, relSec)
+            && juce::exactlyEqual (restoreExponent, restoreExp))
+            return;
+        atkSec = atkSeconds; relSec = relSeconds; restoreExp = restoreExponent;
+        if (sr > 0.0)
+        {
+            atk = 1.0f - std::exp (-1.0f / (float) (sr * atkSec));
+            rel = 1.0f - std::exp (-1.0f / (float) (sr * relSec));
+        }
+    }
+
     void prepare (double sampleRate, int blockSize)
     {
         sr = sampleRate;
         peak = 0.0f;
-        atk = 1.0f - std::exp (-1.0f / (float) (sr * 0.005));   // 5 ms
-        rel = 1.0f - std::exp (-1.0f / (float) (sr * 0.250));   // 250 ms
+        atk = 1.0f - std::exp (-1.0f / (float) (sr * atkSec));   // stock 5 ms
+        rel = 1.0f - std::exp (-1.0f / (float) (sr * relSec));   // stock 250 ms
         env.allocate ((size_t) blockSize, true);
         cleanLow.allocate ((size_t) blockSize, true);
 
@@ -200,7 +221,10 @@ struct FuzzChain
             for (size_t b = 0; b < 8; ++b)
                 grit += gritScale * locks.grit[b] * gritBP[b].processSample (diff);
             // casc < 0 = warmth: tame the grit region. Exact pass-through at casc >= 0.
-            x[i] = cascWarm.processSample (d + grit) * env[(size_t) i];   // restore the note's dynamics
+            // restore the note's dynamics (env^exp when reshaped; exp 1 = stock, bit-exact)
+            const float restore = juce::exactlyEqual (restoreExp, 1.0f)
+                                ? env[(size_t) i] : std::pow (env[(size_t) i], restoreExp);
+            x[i] = cascWarm.processSample (d + grit) * restore;
         }
 
         if (tame > 0.0f)   // transient reduction, scale-invariant
@@ -302,6 +326,7 @@ private:
     float lowBlend = 0.0f, blendGain = 0.0f;
     float level = 1.0f;
 
+    float atkSec = 0.005f, relSec = 0.250f, restoreExp = 1.0f;
     float peak = 0.0f, atk = 0.0f, rel = 0.0f;
     float tameFast = 0.0f, tameSlow = 0.0f, tameFC = 0.0f, tameSC = 0.0f;
     juce::HeapBlock<float> env, cleanLow;

@@ -94,6 +94,8 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pInGain   = P ("in_gain");
     pOutGain  = P ("out_gain");
     pGlue     = P ("glue");
+    pDriveRel     = P ("drive_rel");
+    pDriveSustain = P ("drive_sustain");
     pAnalyzer = P ("analyzer");
     pGuitarMode = P ("guitar_mode");
     apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
@@ -176,6 +178,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "out_gain", 1 }, "Output Gain",
         NormalisableRange<float> (-24.0f, 24.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    // v1.0: global drive-envelope dials, shared by every drive strip (the AGC
+    // is a gain stage around the cab convolution, so no per-setting IRs).
+    // RELEASE is the follower release: the stock 250 ms fell fast from each
+    // pluck's attack peak to the body level — heard as a sidechain-style duck.
+    // 2500 ms won the 2026-08-01 stem audition and is the new shipped tone;
+    // migrateState() pins pre-v5 sessions back to the legacy 250 ms.
+    // SUSTAIN restores env^(1 - s/200): upward compression of the strip's
+    // dynamics (0 = stock envelope, bit-exact).
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "drive_rel", 1 }, "Fuzz Release",
+        NormalisableRange<float> (100.0f, 4000.0f, 1.0f, 0.4f), 2500.0f,
+        AudioParameterFloatAttributes().withLabel ("ms")));
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "drive_sustain", 1 }, "Fuzz Sustain",
+        NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
+        AudioParameterFloatAttributes().withLabel ("%")));
     // spectrum analyzer feed on/off (turn off to save CPU)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "analyzer", 1 }, "Analyzer", true));
     // v1.0: GUITAR mode — the whole chain hears the input an octave down
@@ -452,6 +470,12 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
             fuzz[(size_t) slot].setLocks (lk);
             fuzz[(size_t) slot].setCharacter (dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot]);
+            // global envelope dials (no-op when unmoved). ms -> s by DIVISION:
+            // 250/1000 and 2500/1000 are exact in float, so the migrated
+            // legacy 250 ms reproduces the pre-v1 release coefficient (and
+            // render) bit-for-bit — *0.001f would land one ulp off.
+            fuzz[(size_t) slot].setEnvShape (0.005f, pDriveRel->load() / 1000.0f,
+                                             1.0f - pDriveSustain->load() / 200.0f);
         }
         if (def.isFX)
         {
@@ -639,7 +663,7 @@ void BoRBassEnhancerProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 4);
+        xml->setAttribute ("stateVersion", 5);
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -649,30 +673,42 @@ void BoRBassEnhancerProcessor::getStateInformation (juce::MemoryBlock& destData)
 // so old sessions keep their mix.
 static void migrateState (juce::XmlElement& xml)
 {
-    if (xml.getIntAttribute ("stateVersion", 1) >= 2) return;
-    struct Fix { const char* id; float bumpDb; };
-    for (const auto& fx : { Fix { "lofx57", 11.2f }, Fix { "lofx421", 16.1f }, Fix { "lofxtwt", 11.4f } })
+    if (xml.getIntAttribute ("stateVersion", 1) < 2)
     {
-        bool fuzzOn = true;   // _fuzz defaults to on, so a missing node means engaged
-        juce::XmlElement* gainNode = nullptr;
-        for (auto* p : xml.getChildWithTagNameIterator ("PARAM"))
+        struct Fix { const char* id; float bumpDb; };
+        for (const auto& fx : { Fix { "lofx57", 11.2f }, Fix { "lofx421", 16.1f }, Fix { "lofxtwt", 11.4f } })
         {
-            const auto pid = p->getStringAttribute ("id");
-            if (pid == juce::String (fx.id) + "_fuzz") fuzzOn = p->getDoubleAttribute ("value", 1.0) > 0.5;
-            if (pid == juce::String (fx.id) + "_gain") gainNode = p;
+            bool fuzzOn = true;   // _fuzz defaults to on, so a missing node means engaged
+            juce::XmlElement* gainNode = nullptr;
+            for (auto* p : xml.getChildWithTagNameIterator ("PARAM"))
+            {
+                const auto pid = p->getStringAttribute ("id");
+                if (pid == juce::String (fx.id) + "_fuzz") fuzzOn = p->getDoubleAttribute ("value", 1.0) > 0.5;
+                if (pid == juce::String (fx.id) + "_gain") gainNode = p;
+            }
+            if (fuzzOn && gainNode != nullptr)
+                gainNode->setAttribute ("value", juce::jlimit (-60.0, 12.0,
+                    gainNode->getDoubleAttribute ("value") + (double) fx.bumpDb));
         }
-        if (fuzzOn && gainNode != nullptr)
-            gainNode->setAttribute ("value", juce::jlimit (-60.0, 12.0,
-                gainNode->getDoubleAttribute ("value") + (double) fx.bumpDb));
+        xml.setAttribute ("stateVersion", 2);
     }
-    xml.setAttribute ("stateVersion", 2);
+    // stateVersion 3 (v0.2.0) added the since-removed octave strips and the
+    // per-strip drive type. No value migration is needed: every new parameter's
+    // default reproduces the old behaviour exactly (octave strips muted, LO drive type FUZZ), so a v2
+    // session loads bit-identically with the new params at their defaults.
+    // stateVersion 4 (v1.0) adds guitar_mode. Default false reproduces a v3
+    // session byte-identically — no value migration.
+    // stateVersion 5 (v1.0) adds the global drive-envelope dials, whose
+    // defaults are the NEW tone (release 2500 ms). A pre-v5 session gets an
+    // explicit legacy 250 ms node so its render is unchanged.
+    if (xml.getIntAttribute ("stateVersion", 1) < 5)
+    {
+        auto* p = xml.createNewChildElement ("PARAM");
+        p->setAttribute ("id", "drive_rel");
+        p->setAttribute ("value", 250.0);
+        xml.setAttribute ("stateVersion", 5);
+    }
 }
-// stateVersion 3 (v0.2.0) added the since-removed octave strips and the
-// per-strip drive type. No value migration is needed: every new parameter's
-// default reproduces the old behaviour exactly (octave strips muted, LO drive type FUZZ), so a v2
-// session loads bit-identically with the new params at their defaults.
-// stateVersion 4 (v1.0) adds guitar_mode. Default false reproduces a v3
-// session byte-identically — no value migration.
 
 void BoRBassEnhancerProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
@@ -769,7 +805,7 @@ bool BoRBassEnhancerProcessor::saveUserPreset (const juce::String& name)
     auto f = getUserPresetDir().getChildFile (juce::File::createLegalFileName (name) + ".xml");
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("stateVersion", 4);
+        xml->setAttribute ("stateVersion", 5);
         stripGuitarMode (*xml);
         return xml->writeTo (f);
     }

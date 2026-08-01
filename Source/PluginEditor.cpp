@@ -745,6 +745,16 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         outKnob  = std::make_unique<bbe::Knob> (proc, "out_gain", "OUTPUT", 1, knobLnf);
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
 
+        // v1.0: global drive-envelope dials — one setting for every drive
+        // strip. Greyed (but visible) until a FUZZ/DIST key is engaged.
+        relKnob = std::make_unique<bbe::Knob> (proc, "drive_rel",     "RELEASE", 0, knobLnf);
+        susKnob = std::make_unique<bbe::Knob> (proc, "drive_sustain", "SUSTAIN", 0, knobLnf);
+        addAndMakeVisible (*relKnob); addAndMakeVisible (*susKnob);
+        int fi = 0;
+        for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
+            pStripFuzz[(size_t) fi++] = proc.apvts.getRawParameterValue (juce::String (id) + "_fuzz");
+        refreshDriveDials();
+
         // GUITAR mode: octave-down front end + red theme. ParameterAttachment
         // (not ButtonAttachment) so host automation recolors this editor too;
         // sendInitialUpdate paints the right theme when the editor opens on a
@@ -824,6 +834,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         analyzer->update (proc);
 
         refreshFreqButton();   // host automation can flip the analyzer param under us
+        refreshDriveDials();   // FUZZ/DIST keys (or automation) gate the envelope dials
 
         if (info->isVisible())
         {
@@ -844,6 +855,20 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                 "CPU|"         + juce::String (cpuDisp * 100.0f, 1) + " % of one core",
                 "XRUNS|"       + juce::String (proc.getXRunCount()) + " (callbacks over budget)",
             });
+        }
+    }
+
+    // grey the RELEASE/SUSTAIN pair while no drive strip is engaged
+    void refreshDriveDials()
+    {
+        const bool any = pStripFuzz[0]->load() > 0.5f || pStripFuzz[1]->load() > 0.5f
+                      || pStripFuzz[2]->load() > 0.5f;
+        if (any == driveDialsOn) return;
+        driveDialsOn = any;
+        for (auto* k : { relKnob.get(), susKnob.get() })
+        {
+            k->setEnabled (any);
+            k->setAlpha (any ? 1.0f : 0.35f);
         }
     }
 
@@ -1098,6 +1123,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
+        // drive-envelope pair, slightly smaller, left of the master gains
+        const int dkw = 66, dkh = 92, dky = bottom.getCentreY() - dkh / 2;
+        kx -= dkw + kgap;
+        susKnob->setBounds (kx, dky, dkw, dkh); kx -= dkw + 18;
+        relKnob->setBounds (kx, dky, dkw, dkh);
+
         // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
         freq->setBounds (left.removeFromTop (24).removeFromLeft (92));
@@ -1127,7 +1158,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     bool gtrOn = false;
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
-    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
+    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, relKnob, susKnob;
+    std::array<std::atomic<float>*, 3> pStripFuzz {};
+    bool driveDialsOn = true;   // init true so the first refresh always applies the grey
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };
     std::unique_ptr<UpdateCheckThread> updateThread;
     float cpuDisp = 0.0f;

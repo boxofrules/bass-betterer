@@ -122,6 +122,8 @@ private:
     std::atomic<float>* pInGain  = nullptr;
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pGlue    = nullptr;
+    std::atomic<float>* pDriveRel     = nullptr;  // global drive-envelope dials
+    std::atomic<float>* pDriveSustain = nullptr;
     std::atomic<float>* pAnalyzer = nullptr;  // spectrum display feed on/off (CPU saver)
     std::atomic<float>* pGuitarMode = nullptr; // octave-down front end (play a guitar, get a bass)
     std::atomic<float>* pDiGain  = nullptr;    // DI blend strip (raw input, pre input-gain)

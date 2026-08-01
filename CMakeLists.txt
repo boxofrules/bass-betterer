@@ -129,4 +129,20 @@ if(BOR_BUILD_TOOLS)
         juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+
+    # Fuzz-envelope audition renders (see tools/fuzz_variants.cpp)
+    juce_add_console_app(BoRFuzzVariants PRODUCT_NAME "bor-fuzz-variants")
+    target_sources(BoRFuzzVariants PRIVATE
+        tools/fuzz_variants.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp)
+    target_compile_definitions(BoRFuzzVariants PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(BoRFuzzVariants PRIVATE
+        BoREnhancerIR
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
 endif()
