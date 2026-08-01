@@ -247,16 +247,20 @@ struct Knob : public juce::Component
         caption.setJustificationType (juce::Justification::centred);
         caption.setFont (bor::mono (11.0f));
         caption.setColour (juce::Label::textColourId, bor::mute2);
+        caption.setInterceptsMouseClicks (false, false);   // clicks land on the Knob (onCaptionClick)
         addAndMakeVisible (caption);
         value.setJustificationType (juce::Justification::centred);
         value.setFont (bor::mono (15.0f));
         value.setColour (juce::Label::textColourId, bor::bone);
+        value.setInterceptsMouseClicks (false, false);
         addAndMakeVisible (value);
         slider.onValueChange = [this] { refresh(); };
         refresh();
     }
     ~Knob() override { slider.setLookAndFeel (nullptr); }
     void refresh() { value.setText (juce::String (slider.getValue(), decimals), juce::dontSendNotification); }
+    void mouseUp (const juce::MouseEvent& e) override
+    { if (onCaptionClick != nullptr && caption.getBounds().contains (e.getPosition())) onCaptionClick(); }
     void resized() override
     {
         auto r = getLocalBounds();
@@ -268,6 +272,7 @@ struct Knob : public juce::Component
     juce::Slider slider;
     juce::Label caption, value;
     std::unique_ptr<SA> att;
+    std::function<void()> onCaptionClick;   // set = the caption is a menu (EQ band freqs)
 };
 
 // ---- one channel strip -----------------------------------------------------
@@ -820,9 +825,10 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
 
         // v1.0: global drive-envelope dials — one setting for every drive
         // strip. Greyed (but visible) until a FUZZ/DIST key is engaged.
+        drvKnob = std::make_unique<bbe::Knob> (proc, "drive_amt",     "DRIVE",   0, knobLnf);
         relKnob = std::make_unique<bbe::Knob> (proc, "drive_rel",     "RELEASE", 0, knobLnf);
         susKnob = std::make_unique<bbe::Knob> (proc, "drive_sustain", "SUSTAIN", 0, knobLnf);
-        addAndMakeVisible (*relKnob); addAndMakeVisible (*susKnob);
+        addAndMakeVisible (*drvKnob); addAndMakeVisible (*relKnob); addAndMakeVisible (*susKnob);
 
         // v1.0: master EQ column (post GLUE, pre OUTPUT in the signal path)
         setupLbl (eqLbl, "EQ", bor::bone, 11.0f, true, juce::Justification::centredTop);
@@ -834,6 +840,39 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         {
             eqKnobs[ei] = std::make_unique<bbe::Knob> (proc, eqDefs[ei][0], eqDefs[ei][1], 1, knobLnf);
             addAndMakeVisible (*eqKnobs[ei]);
+        }
+        // each band's caption is a menu: click to choose where the shelf/peak
+        // sits (the caption reads e.g. "LO MID · 250")
+        for (size_t ei = 0; ei < eqDefs.size(); ++ei)
+        {
+            auto* prm = dynamic_cast<juce::AudioParameterChoice*> (
+                proc.apvts.getParameter (juce::String (eqDefs[ei][0]) + "_freq"));
+            if (prm == nullptr) continue;
+            auto* kn = eqKnobs[ei].get();
+            auto setCap = [kn, cap = juce::String (eqDefs[ei][1])] (const juce::String& choice)
+            {
+                kn->caption.setText (cap + " \xc2\xb7 " + choice.replace (" Hz", "")
+                                                                .replace (" kHz", "k"),
+                                     juce::dontSendNotification);
+            };
+            eqFreqAtts[ei] = std::make_unique<juce::ParameterAttachment> (*prm,
+                [prm, setCap] (float) { setCap (prm->getCurrentChoiceName()); });
+            eqFreqAtts[ei]->sendInitialUpdate();
+            kn->setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            kn->onCaptionClick = [prm, kn]
+            {
+                juce::PopupMenu m;
+                for (int i = 0; i < prm->choices.size(); ++i)
+                    m.addItem (i + 1, prm->choices[i], true, i == prm->getIndex());
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (kn),
+                                 [prm] (int r)
+                                 {
+                                     if (r <= 0) return;
+                                     prm->beginChangeGesture();
+                                     prm->setValueNotifyingHost (prm->convertTo0to1 ((float) (r - 1)));
+                                     prm->endChangeGesture();
+                                 });
+            };
         }
         int fi = 0;
         for (auto* id : { "lofx57", "lofx421", "lofxtwt" })
@@ -951,7 +990,7 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
                       || pStripFuzz[2]->load() > 0.5f;
         if (any == driveDialsOn) return;
         driveDialsOn = any;
-        for (auto* k : { relKnob.get(), susKnob.get() })
+        for (auto* k : { drvKnob.get(), relKnob.get(), susKnob.get() })
         {
             k->setEnabled (any);
             k->setAlpha (any ? 1.0f : 0.35f);
@@ -1222,11 +1261,12 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
 
-        // drive-envelope pair, slightly smaller, left of the master gains
+        // drive trio (DRIVE · RELEASE · SUSTAIN), slightly smaller, left of the masters
         const int dkw = 66, dkh = 92, dky = bottom.getCentreY() - dkh / 2;
         kx -= dkw + kgap;
         susKnob->setBounds (kx, dky, dkw, dkh); kx -= dkw + 18;
-        relKnob->setBounds (kx, dky, dkw, dkh);
+        relKnob->setBounds (kx, dky, dkw, dkh); kx -= dkw + 18;
+        drvKnob->setBounds (kx, dky, dkw, dkh);
 
         // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
@@ -1257,8 +1297,9 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     bool gtrOn = false;
     juce::Colour themeAccent { bor::accent };
     std::unique_ptr<bbe::InfoPanel> info;
-    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, relKnob, susKnob;
+    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, drvKnob, relKnob, susKnob;
     std::array<std::unique_ptr<bbe::Knob>, 4> eqKnobs;
+    std::array<std::unique_ptr<juce::ParameterAttachment>, 4> eqFreqAtts;
     juce::Label eqLbl;
     std::array<std::atomic<float>*, 3> pStripFuzz {};
     bool driveDialsOn = true;   // init true so the first refresh always applies the grey

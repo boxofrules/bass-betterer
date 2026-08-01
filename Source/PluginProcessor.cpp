@@ -103,7 +103,13 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
         for (int v = 0; v < 6; ++v)
             pRoomSrc[(size_t) r][(size_t) v] =
                 P (juce::String (channels[(size_t) (6 + r)].id) + "_src_" + channels[(size_t) v].id);
-    { int b = 0; for (auto* id : { "eq_low", "eq_lomid", "eq_himid", "eq_high" }) pEq[(size_t) b++] = P (id); }
+    { int b = 0; for (auto* id : { "eq_low", "eq_lomid", "eq_himid", "eq_high" })
+      {
+          pEq[(size_t) b]     = P (id);
+          pEqFreq[(size_t) b] = P (juce::String (id) + "_freq");
+          ++b;
+      } }
+    pDriveAmt = P ("drive_amt");
     pAnalyzer = P ("analyzer");
     pGuitarMode = P ("guitar_mode");
     apvts.addParameterListener ("guitar_mode", this);   // latency reporting (refreshLatency)
@@ -212,6 +218,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
         ParameterID { "drive_sustain", 1 }, "Fuzz Sustain",
         NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
         AudioParameterFloatAttributes().withLabel ("%")));
+    // v1.0: global DRIVE dial — scales every strip's locked drive amount.
+    // 100 % (the default) is an exact x1 (applied by /100 division), so the
+    // locked characters reproduce bit-for-bit. The AGC keeps the level story
+    // sane either side: this dial is how hard the clipper is hit, not volume.
+    {
+        NormalisableRange<float> dr (25.0f, 400.0f, 1.0f);
+        dr.setSkewForCentre (100.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "drive_amt", 1 }, "Fuzz Drive", dr, 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+    }
     // v1.0: master EQ column (post glue, pre output gain). All dials at 0 =
     // the stage is skipped entirely (no CPU, byte-identical to pre-EQ renders).
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -226,6 +243,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "eq_high", 1 }, "EQ High",
         NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    // each band's frequency, as an append-only choice (defaults = the v1.0
+    // fixed centres, so sessions saved before the choice existed are unmoved)
+    {
+        static const std::array<const char*, 4> bandIds  { "eq_low", "eq_lomid", "eq_himid", "eq_high" };
+        static const std::array<const char*, 4> bandNames { "EQ Low", "EQ Low Mid", "EQ High Mid", "EQ High" };
+        for (size_t b = 0; b < 4; ++b)
+        {
+            StringArray opts;
+            for (float f : EQ_FREQS[b])
+                opts.add (f < 1000.0f ? String ((int) f) + " Hz"
+                                      : String (f / 1000.0f, 1) + " kHz");
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { String (bandIds[b]) + "_freq", 1 },
+                String (bandNames[b]) + " Freq", opts, EQ_FREQ_DEFAULT[b]));
+        }
+    }
     // spectrum analyzer feed on/off (turn off to save CPU)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "analyzer", 1 }, "Analyzer", true));
     // v1.0: GUITAR mode — the whole chain hears the input an octave down
@@ -319,7 +352,7 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     // master EQ: stereo pair per band; sentinel forces a redesign at this rate
     for (auto& band : eqF)
         for (auto& f : band) { f.prepare (monoSpec); f.reset(); }
-    eqCur.fill (1.0e9f);
+    eqCur.fill (1.0e9f);   // gains AND freq choices — both re-read on first use
     eqWasActive = false;
 
     // GUITAR mode: octave-down shifter + raw/shifted scratch. The engage
@@ -506,13 +539,21 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             auto lk = drive::LOCKS[(size_t) slot];
             lk.levelDb += dist ? drive::DIST_TRIM_DB[(size_t) slot] : drive::FUZZ_TRIM_DB[(size_t) slot];
             fuzz[(size_t) slot].setLocks (lk);
-            fuzz[(size_t) slot].setCharacter (dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot]);
+            // The drive dials are step-1 params, but a skewed range's 0..1
+            // roundtrip (pow) can hand back e.g. 99.9999924 for "100" — round
+            // to the legal grid BEFORE deriving factors, or the byte-identity
+            // contract (100 % / legacy 250 ms = bit-exact) silently breaks.
+            const float dAmt = std::round (pDriveAmt->load());
+            const float dRel = std::round (pDriveRel->load());
+            const float dSus = std::round (pDriveSustain->load());
+            // global DRIVE: scale the locked amount (/100 so 100 % is exact x1)
+            auto chr = dist ? drive::DIST[(size_t) slot] : drive::FUZZ[(size_t) slot];
+            chr[drive::Amount] *= dAmt / 100.0f;
+            fuzz[(size_t) slot].setCharacter (chr);
             // global envelope dials (no-op when unmoved). ms -> s by DIVISION:
-            // 250/1000 and 2500/1000 are exact in float, so the migrated
-            // legacy 250 ms reproduces the pre-v1 release coefficient (and
-            // render) bit-for-bit — *0.001f would land one ulp off.
-            fuzz[(size_t) slot].setEnvShape (0.005f, pDriveRel->load() / 1000.0f,
-                                             1.0f - pDriveSustain->load() / 200.0f);
+            // 250/1000 and 2500/1000 are exact in float — *0.001f would land
+            // one ulp off.
+            fuzz[(size_t) slot].setEnvShape (0.005f, dRel / 1000.0f, 1.0f - dSus / 200.0f);
         }
         if (def.isFX)
         {
@@ -650,6 +691,7 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         {
             const float db = pEq[(size_t) b]->load();
             if (! juce::exactlyEqual (db, eqCur[(size_t) b])) moved = true;
+            if (! juce::exactlyEqual (pEqFreq[(size_t) b]->load(), eqCur[(size_t) (4 + b)])) moved = true;
             if (std::abs (db) > 0.001f) active = true;
         }
         if (active)
@@ -660,11 +702,19 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
                 auto g   = [] (float db) { return juce::Decibels::decibelsToGain (db); };
                 auto set = [this] (int b, C::Ptr c) { eqF[(size_t) b][0].coefficients = c;
                                                       eqF[(size_t) b][1].coefficients = c; };
-                for (int b = 0; b < 4; ++b) eqCur[(size_t) b] = pEq[(size_t) b]->load();
-                set (0, C::makeLowShelf   (sr,   90.0f, 0.71f, g (eqCur[0])));
-                set (1, C::makePeakFilter (sr,  250.0f, 1.0f,  g (eqCur[1])));
-                set (2, C::makePeakFilter (sr,  900.0f, 0.9f,  g (eqCur[2])));
-                set (3, C::makeHighShelf  (sr, juce::jmin (3200.0f, (float) sr * 0.45f), 0.71f, g (eqCur[3])));
+                auto fq  = [this] (int b) {
+                    const int i = juce::jlimit (0, 3, (int) eqCur[(size_t) (4 + b)]);
+                    return juce::jmin (EQ_FREQS[(size_t) b][(size_t) i], (float) sr * 0.45f);
+                };
+                for (int b = 0; b < 4; ++b)
+                {
+                    eqCur[(size_t) b]       = pEq[(size_t) b]->load();
+                    eqCur[(size_t) (4 + b)] = pEqFreq[(size_t) b]->load();
+                }
+                set (0, C::makeLowShelf   (sr, fq (0), 0.71f, g (eqCur[0])));
+                set (1, C::makePeakFilter (sr, fq (1), 1.0f,  g (eqCur[1])));
+                set (2, C::makePeakFilter (sr, fq (2), 0.9f,  g (eqCur[2])));
+                set (3, C::makeHighShelf  (sr, fq (3), 0.71f, g (eqCur[3])));
             }
             eqWasActive = true;
             for (int ch = 0; ch < 2; ++ch)

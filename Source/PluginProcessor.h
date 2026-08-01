@@ -144,11 +144,23 @@ private:
     juce::HeapBlock<float>   roomFeed;                     // per-room sum of the selected voicing layers
     std::array<std::array<std::atomic<float>*, 6>, 2> pRoomSrc {};   // [room][voicing] feed toggles
 
-    // master EQ (post glue): 4 bands x stereo, skipped when every dial is neutral
-    std::array<std::atomic<float>*, 4> pEq {};
+    // master EQ (post glue): 4 bands x stereo, skipped when every dial is neutral.
+    // Each band's centre/corner is a 4-way choice param (`eq_*_freq`); this
+    // table is the single numeric source — createLayout() builds the choice
+    // strings from it, and the editor reads names via getCurrentChoiceName().
+    static constexpr std::array<std::array<float, 4>, 4> EQ_FREQS {{
+        {   45.0f,   60.0f,   90.0f,  120.0f },   // LOW shelf   (default 90)
+        {  180.0f,  250.0f,  350.0f,  500.0f },   // LO MID peak (default 250)
+        {  700.0f,  900.0f, 1200.0f, 1800.0f },   // HI MID peak (default 900)
+        { 2400.0f, 3200.0f, 4800.0f, 6800.0f },   // HIGH shelf  (default 3200)
+    }};
+    static constexpr std::array<int, 4> EQ_FREQ_DEFAULT { 2, 1, 1, 1 };
+    std::array<std::atomic<float>*, 4> pEq {}, pEqFreq {};
     std::array<std::array<juce::dsp::IIR::Filter<float>, 2>, 4> eqF;
-    std::array<float, 4> eqCur { 1.0e9f, 1.0e9f, 1.0e9f, 1.0e9f };
+    std::array<float, 8> eqCur {};   // 4 gains + 4 freq choices; sentinel = redesign
     bool eqWasActive = false;
+
+    std::atomic<float>* pDriveAmt = nullptr;   // global DRIVE dial (% of the locked amounts)
 
     // spectrum analyzer fifos (mono -> editor FFT): [0] processed output, [1] raw DI
     std::array<juce::AbstractFifo, 2> analyzerFifo { juce::AbstractFifo { 1 << 14 },
