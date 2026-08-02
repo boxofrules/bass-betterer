@@ -214,8 +214,12 @@ namespace bbeStats
 
     inline void setEnabled (bool on)
     {
-        if (! on && enabled()) send ("opt_out");   // final event while still allowed
+        if (! on && enabled())
+        {
+            saveQueue ({});      // consent withdrawn: drop anything not yet sent
+            send ("opt_out");    // one final event, then silence
+        }
         props().setValue ("shareUsageStats", on);
-        props().saveIfNeeded();
+        props().save();          // force to disk NOW — the choice must survive anything
     }
 }
