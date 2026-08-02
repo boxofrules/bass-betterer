@@ -95,6 +95,7 @@ BoRBassEnhancerProcessor::BoRBassEnhancerProcessor()
     pOutGain  = P ("out_gain");
     pGlue     = P ("glue");
     pAnalyzer = P ("analyzer");
+    pWidth    = P ("width");
     pDiGain   = P ("di_gain");
     pDiMute   = P ("di_mute");
     pDiSolo   = P ("di_solo");
@@ -158,6 +159,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BoRBassEnhancerProcessor::cr
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "glue", 1 }, "Glue",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+    // 0.2.2: WIDTH — stereo spreader between GLUE and OUTPUT, stereo instances
+    // only. 0 (default) = off, skipped entirely/bit-exact.
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "width", 1 }, "Width",
+        NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
+        AudioParameterFloatAttributes().withLabel ("%")));
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "out_gain", 1 }, "Output Gain",
         NormalisableRange<float> (-24.0f, 24.0f, 0.1f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
@@ -243,6 +250,14 @@ void BoRBassEnhancerProcessor::prepareToPlay (double sampleRate, int samplesPerB
     work.setSize   (1, samplesPerBlock);
     outBus.setSize (2, samplesPerBlock);
     layerBuf.setSize (NUM_CH, samplesPerBlock);
+
+    // WIDTH spreader state (6 ms mid delay, 250 Hz side low-cut)
+    spreadLen = juce::jmax (1, (int) (sampleRate * 0.006));
+    spreadBuf.allocate ((size_t) spreadLen, true);
+    spreadW = 0;
+    spreadLp = 0.0f;
+    spreadLpC = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (float) sampleRate);
+    smWidth = 0.0f;
     voiceMono.allocate ((size_t) samplesPerBlock, true);
 
     for (int w = 0; w < 2; ++w)
@@ -504,6 +519,36 @@ void BoRBassEnhancerProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (smMakeup != 1.0f || makeup != 1.0f)
         outBus.applyGainRamp (0, n, smMakeup, makeup);
     smMakeup = makeup;
+
+    // --- WIDTH (stereo only): spreader, 0 = off (skipped, bit-exact) ---
+    // The stack is nearly mono by design, so width is GENERATED: a 6 ms
+    // delayed, 250 Hz low-cut copy of the mid pushed complementarily (+L/-R).
+    // The mono fold-down stays EXACTLY the untouched mix (the generated side
+    // cancels) and the lows stay centred.
+    if (numOut >= 2)
+    {
+        const float w = std::round (pWidth->load()) / 100.0f;
+        if (smSnap) smWidth = w;
+        if (w > 0.0f || smWidth > 0.0f)
+        {
+            float* L = outBus.getWritePointer (0);
+            float* R = outBus.getWritePointer (1);
+            for (int s2 = 0; s2 < n; ++s2)
+            {
+                const float ww = smWidth + (w - smWidth) * (float) (s2 + 1) * rampInc;
+                const float m  = 0.5f * (L[s2] + R[s2]);
+                float sd = 0.5f * (L[s2] - R[s2]);
+                spreadBuf[(size_t) spreadW] = m;
+                spreadW = (spreadW + 1) % spreadLen;
+                const float d = spreadBuf[(size_t) spreadW];
+                spreadLp += spreadLpC * (d - spreadLp);
+                sd += 0.7f * ww * (d - spreadLp);
+                L[s2] = m + sd;
+                R[s2] = m - sd;
+            }
+        }
+        smWidth = w;
+    }
 
     // --- output gain (ramped) + write to the host buffer (mono or stereo) ---
     const float outG = juce::Decibels::decibelsToGain (pOutGain->load());
