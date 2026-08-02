@@ -592,14 +592,18 @@ struct InfoPanel : public juce::Component
         };
         addAndMakeVisible (*copyBtn);
 
-        // visible opt-out for the anonymous usage pings (contract-required)
-        statsBtn = std::make_unique<SquareButton> ("USAGE STATS", bor::accent, bor::accentOn);
-        statsBtn->setTooltip ("Send anonymous usage data (that the plugin launched and footer link "
-                              "clicks; a random install id only - no personal data, no audio, no "
-                              "IPs stored). On by default; click to opt out or back in.");
-        statsBtn->setToggleState (bbeStats::enabled(), juce::dontSendNotification);
-        statsBtn->onClick = [this] { bbeStats::setEnabled (statsBtn->getToggleState()); };
-        addAndMakeVisible (*statsBtn);
+        // visible opt-out for the anonymous usage pings — a REAL checkbox
+        // with its meaning in the label, so the consent state is unambiguous
+        statsToggle = std::make_unique<juce::ToggleButton> ("Send anonymous usage data");
+        statsToggle->setColour (juce::ToggleButton::textColourId, bor::bone);
+        statsToggle->setColour (juce::ToggleButton::tickColourId, bor::accent);
+        statsToggle->setColour (juce::ToggleButton::tickDisabledColourId, bor::mute);
+        statsToggle->setTooltip ("That the plugin launched and footer link clicks; a random install "
+                                 "id only - no personal data, no audio, no IPs stored. Untick to "
+                                 "stop all of it immediately. Details under PRIVACY.");
+        statsToggle->setToggleState (bbeStats::enabled(), juce::dontSendNotification);
+        statsToggle->onClick = [this] { bbeStats::setEnabled (statsToggle->getToggleState()); };
+        addAndMakeVisible (*statsToggle);
 
         privacyBtn = std::make_unique<SquareButton> ("PRIVACY", bor::accent, bor::accentOn);
         privacyBtn->setTooltip ("What the usage stats contain and how they are handled - "
@@ -613,8 +617,8 @@ struct InfoPanel : public juce::Component
     void resized() override
     {
         copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20);
-        statsBtn->setBounds (16, getHeight() - 31, 110, 20);
-        privacyBtn->setBounds (132, getHeight() - 31, 74, 20);
+        statsToggle->setBounds (12, getHeight() - 33, 230, 24);
+        privacyBtn->setBounds (248, getHeight() - 31, 74, 20);
     }
 
     // each line is "KEY|value"
@@ -645,7 +649,8 @@ struct InfoPanel : public juce::Component
 
     std::function<void()> onDismiss;
     juce::StringArray lines;
-    std::unique_ptr<SquareButton> copyBtn, statsBtn, privacyBtn;
+    std::unique_ptr<SquareButton> copyBtn, privacyBtn;
+    std::unique_ptr<juce::ToggleButton> statsToggle;
 };
 
 // ---- footer social icons: minimal house-style glyphs, accent-tinted ---------
