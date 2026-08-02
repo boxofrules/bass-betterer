@@ -88,7 +88,7 @@ The honest engineering answers, for those who asked.
 
 **CPU?** Low. On an Apple Silicon core at 48 kHz / 512-sample blocks the worst case (all three fuzzes, rooms, and the spectrum display engaged) measures around 1–2 % of one core; an all-clean setting is under 1 %. The SYS panel shows the live figure in your own host, and the repo carries the benchmark harness (`tools/`) the numbers come from.
 
-**Does it phone home?** The editor asks the public GitHub releases feed — at most once a day — whether a newer version exists, and shows an UPDATE notice if so. Nothing about you, your audio, or your session is sent; it is the same request your browser makes opening the releases page. No other network access of any kind.
+**Does it phone home?** Two things as of 0.2.2, both harmless and both visible. (1) The editor asks the public GitHub releases feed — at most once a day — whether a newer version exists. (2) It sends **anonymous usage counts** to boxofrules.com (that the plugin launched, its version/OS/host, and clicks on the footer icons), queued locally and sent in a batch about once an hour. Anonymous means anonymous: no personal data, no audio, no file or session names, and the server stores no IP addresses — the only identifier is a random ID the plugin invents on first run. The SYS panel has a clearly-labelled **"Send anonymous usage data"** checkbox (pre-checked; untick and everything stops immediately, including anything queued) and a **PRIVACY** link; the full policy is at [boxofrules.com/privacy](https://boxofrules.com/privacy?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell). Versions 0.2.1 and earlier sent nothing beyond the update check.
 
 ## Glossary
 
