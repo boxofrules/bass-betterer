@@ -1,7 +1,7 @@
 # Bass Better-er
 
-> ## 🚚 Bass Better-er has grown up — meet **[Box of Bass](https://boxofrules.com/box-of-bass)**
-> **This was the beta. The plugin's future lives at [boxofrules.com/plugins](https://boxofrules.com/plugins)** — all future plugins, updates and news are there, starting with **[Box of Bass v1](https://boxofrules.com/box-of-bass)**, the successor to Bass Better-er.
+> ## 🚚 Bass Better-er has grown up — meet **[Box of Bass](https://boxofrules.com/plugins/box-of-bass?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell)**
+> **This was the beta. The plugin's future lives at [boxofrules.com/plugins](https://boxofrules.com/plugins?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell)** — all future plugins, updates and news are there, starting with **[Box of Bass v1](https://boxofrules.com/plugins/box-of-bass?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell)**, the successor to Bass Better-er.
 > **This repository gets no further updates** beyond this final beta release (v0.2.2). Existing sessions keep working — Bass Better-er and Box of Bass install side by side.
 >
 > 🗣️ Got two minutes? Tell us what the beta got right and wrong: **[the Bass Better-er farewell survey](https://docs.google.com/forms/d/e/1FAIpQLSckz4y1fh-NelGAHQPh7ZIIQ5gSAyqYx7a6ZXHdjAMmOfoFXw/viewform)**.
@@ -26,7 +26,7 @@ Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, 
 - **New presets** — Dist Stack joins the bank; Dirt Duck is now Dirt Wall.
 - **Load preset file** — the PRESET menu can now load a preset file someone sent you, and keeps it in your User list.
 - **New init defaults** — a fresh instance (and the Init preset) starts fully clean: FUZZ off on the LOW FX strips, FREQ spectrum set to ALL. Saved sessions and the other factory presets are unaffected.
-- **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass/). Old sessions that used SC load fine but no longer duck.
+- **Sidechain ducking removed** — the SC keys are gone; per-strip sidechain ducking (a much deeper version, any strip against any strip or an external input) lives in [Box of Bass](https://boxofrules.com/plugins/box-of-bass?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell). Old sessions that used SC load fine but no longer duck.
 - **AAX (Pro Tools) builds, now signed** — the AAX target builds and is signed with the PACE tools, and loads in retail Pro Tools. Not in the Release downloads yet: the shipped build needs to cover Apple silicon and Intel both, which lands with a future release. See [Building the AAX target](#building-the-aax-target).
 
 ## Channels and controls
