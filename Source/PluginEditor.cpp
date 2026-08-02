@@ -1,5 +1,6 @@
 // Bass Better-er — © 2026 Box of Rules. Source-available, proprietary — see LICENSE.
 #include "PluginEditor.h"
+#include "Analytics.h"
 #include <cmath>
 
 #ifndef JucePlugin_VersionString
@@ -148,6 +149,15 @@ struct EditorLnf : public juce::LookAndFeel_V4
 };
 
 // ---- hex BR monogram (from BOR-icon-black.svg), filled signal cyan ----------
+// the BR hex monogram path — shared by the header logo and the footer site icon
+static const char* const BOR_MONOGRAM_D =
+    "M150.13,54.79l13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.94v40.83"
+    "s-11.84,6.84-11.84,6.84l11.84,6.84v40.83s-27.52,15.89-27.52,15.89v-63.56h-41.28v87.39"
+    "l-13.76,7.94-82.56-47.67v-40.83l11.84-6.84-11.84-6.84v-40.83l82.56-47.67Z"
+    "M163.89,95.04v35.16l41.28,5.44v-25.58l-41.28-15.02Z"
+    "M136.37,95.04l-41.28,15.02v25.57l41.28-5.44v-35.16Z"
+    "M136.37,150.13h-41.28v40.07l41.28,15.03v-55.09Z";
+
 struct HexLogo : public juce::Component
 {
     HexLogo()
@@ -155,12 +165,7 @@ struct HexLogo : public juce::Component
         const juce::String svg =
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 300'>"
             "<path fill-rule='evenodd' clip-rule='evenodd' fill='#69AFBF' d='"
-            "M150.13,54.79l13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.95,13.76,7.94,13.76,7.94v40.83"
-            "s-11.84,6.84-11.84,6.84l11.84,6.84v40.83s-27.52,15.89-27.52,15.89v-63.56h-41.28v87.39"
-            "l-13.76,7.94-82.56-47.67v-40.83l11.84-6.84-11.84-6.84v-40.83l82.56-47.67Z"
-            "M163.89,95.04v35.16l41.28,5.44v-25.58l-41.28-15.02Z"
-            "M136.37,95.04l-41.28,15.02v25.57l41.28-5.44v-35.16Z"
-            "M136.37,150.13h-41.28v40.07l41.28,15.03v-55.09Z'/></svg>";
+            + juce::String (BOR_MONOGRAM_D) + "'/></svg>";
         if (auto xml = juce::XmlDocument::parse (svg))
             drawable = juce::Drawable::createFromSVG (*xml);
         setInterceptsMouseClicks (false, false);
@@ -586,9 +591,31 @@ struct InfoPanel : public juce::Component
                                               { if (sp != nullptr) sp->setButtonText ("COPY"); });
         };
         addAndMakeVisible (*copyBtn);
+
+        // visible opt-out for the anonymous usage pings (contract-required)
+        statsBtn = std::make_unique<SquareButton> ("USAGE STATS", bor::accent, bor::accentOn);
+        statsBtn->setTooltip ("Send anonymous usage data (that the plugin launched and footer link "
+                              "clicks; a random install id only - no personal data, no audio, no "
+                              "IPs stored). On by default; click to opt out or back in.");
+        statsBtn->setToggleState (bbeStats::enabled(), juce::dontSendNotification);
+        statsBtn->onClick = [this] { bbeStats::setEnabled (statsBtn->getToggleState()); };
+        addAndMakeVisible (*statsBtn);
+
+        privacyBtn = std::make_unique<SquareButton> ("PRIVACY", bor::accent, bor::accentOn);
+        privacyBtn->setTooltip ("What the usage stats contain and how they are handled - "
+                                "boxofrules.com/privacy");
+        privacyBtn->setClickingTogglesState (false);
+        privacyBtn->onClick = []
+        { juce::URL ("https://boxofrules.com/privacy?src=plugin").launchInDefaultBrowser(); };
+        addAndMakeVisible (*privacyBtn);
     }
 
-    void resized() override { copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20); }
+    void resized() override
+    {
+        copyBtn->setBounds (getWidth() - 16 - 64, 11, 64, 20);
+        statsBtn->setBounds (16, getHeight() - 31, 110, 20);
+        privacyBtn->setBounds (132, getHeight() - 31, 74, 20);
+    }
 
     // each line is "KEY|value"
     void setLines (juce::StringArray l) { if (l != lines) { lines = std::move (l); repaint(); } }
@@ -618,7 +645,95 @@ struct InfoPanel : public juce::Component
 
     std::function<void()> onDismiss;
     juce::StringArray lines;
-    std::unique_ptr<SquareButton> copyBtn;
+    std::unique_ptr<SquareButton> copyBtn, statsBtn, privacyBtn;
+};
+
+// ---- footer social icons: minimal house-style glyphs, accent-tinted ---------
+struct SocialIcon : public juce::Button
+{
+    enum Kind { instagram, tiktok, youtube, spotify, appleMusic, site };
+
+    SocialIcon (Kind k, const juce::String& name, const juce::URL& u)
+        : juce::Button (name), kind (k), url (u)
+    {
+        setTooltip (name);
+        setClickingTogglesState (false);
+    }
+
+    void clicked() override { url.launchInDefaultBrowser(); }   // onClick stays free for analytics
+
+    void paintButton (juce::Graphics& g, bool hover, bool) override
+    {
+        g.setColour (hover ? col.brighter (0.4f) : col);
+        auto b = getLocalBounds().toFloat().reduced (2.0f);
+        const float w = b.getWidth(), h = b.getHeight(), x = b.getX(), y = b.getY();
+        const float cx = b.getCentreX(), cy = b.getCentreY(), st = 1.4f;
+        switch (kind)
+        {
+            case instagram:
+                g.drawRoundedRectangle (b, w * 0.28f, st);
+                g.drawEllipse (cx - w * 0.22f, cy - h * 0.22f, w * 0.44f, h * 0.44f, st);
+                g.fillEllipse (x + w * 0.66f, y + h * 0.15f, w * 0.15f, h * 0.15f);
+                break;
+            case tiktok:
+            {
+                g.fillEllipse (x + w * 0.10f, y + h * 0.60f, w * 0.40f, h * 0.36f);
+                g.fillRect (x + w * 0.44f, y + h * 0.06f, st, h * 0.76f);
+                juce::Path f;
+                f.startNewSubPath (x + w * 0.44f + st, y + h * 0.06f);
+                f.quadraticTo (x + w * 0.80f, y + h * 0.14f, x + w * 0.94f, y + h * 0.42f);
+                g.strokePath (f, juce::PathStrokeType (st * 1.2f));
+                break;
+            }
+            case youtube:
+            {
+                auto r = b.reduced (0.0f, h * 0.16f);
+                g.drawRoundedRectangle (r, h * 0.18f, st);
+                juce::Path t;
+                t.addTriangle (cx - w * 0.10f, cy - h * 0.14f,
+                               cx - w * 0.10f, cy + h * 0.14f, cx + w * 0.16f, cy);
+                g.fillPath (t);
+                break;
+            }
+            case spotify:
+            {
+                g.drawEllipse (b, st);
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float yy = y + h * (0.34f + 0.17f * (float) i);
+                    const float in = w * (0.18f + 0.05f * (float) i);
+                    juce::Path a;
+                    a.startNewSubPath (x + in, yy + h * 0.05f);
+                    a.quadraticTo (cx, yy - h * 0.08f, x + w - in, yy + h * 0.05f);
+                    g.strokePath (a, juce::PathStrokeType (st));
+                }
+                break;
+            }
+            case appleMusic:
+            {
+                g.drawEllipse (b, st);
+                g.fillEllipse (cx - w * 0.30f, cy + h * 0.10f, w * 0.18f, h * 0.15f);
+                g.fillEllipse (cx + w * 0.08f, cy + h * 0.04f, w * 0.18f, h * 0.15f);
+                g.fillRect (cx - w * 0.13f, cy - h * 0.24f, st, h * 0.42f);
+                g.fillRect (cx + w * 0.25f, cy - h * 0.30f, st, h * 0.42f);
+                juce::Path beam;
+                beam.startNewSubPath (cx - w * 0.13f, cy - h * 0.24f);
+                beam.lineTo (cx + w * 0.25f + st, cy - h * 0.30f);
+                g.strokePath (beam, juce::PathStrokeType (st * 1.6f));
+                break;
+            }
+            case site:
+            {
+                auto p = juce::Drawable::parseSVGPath (BOR_MONOGRAM_D);
+                g.fillPath (p, p.getTransformToScaleToFit (b, true));
+                break;
+            }
+        }
+    }
+
+    Kind kind;
+    juce::URL url;
+    juce::Colour col { bor::accent };
 };
 
 static void drawRegMark (juce::Graphics& g, int x, int y)
@@ -718,6 +833,34 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         glueKnob = std::make_unique<bbe::Knob> (proc, "glue",     "GLUE",   2, knobLnf);
         outKnob  = std::make_unique<bbe::Knob> (proc, "out_gain", "OUTPUT", 1, knobLnf);
         addAndMakeVisible (*inKnob); addAndMakeVisible (*glueKnob); addAndMakeVisible (*outKnob);
+
+        // 0.2.2: WIDTH — stereo spreader between GLUE and OUTPUT, stereo
+        // instances only (the DSP skips it at 0 and in mono)
+        widthKnob = std::make_unique<bbe::Knob> (proc, "width", "WIDTH", 0, knobLnf);
+        addAndMakeVisible (*widthKnob);
+        widthKnob->setVisible (stereo);
+
+        // 0.2.2: footer social icons. Direct-launch URLs; the click is counted
+        // as an anonymous link_click event (Analytics.h).
+        {
+            const std::pair<bbe::SocialIcon*, const char*> socials[] =
+                { { &igLink, "instagram" }, { &ttLink, "tiktok" }, { &ytLink, "youtube" },
+                  { &spLink, "spotify" }, { &amLink, "apple-music" }, { &siteLink, "site" } };
+            for (const auto& [l, tag] : socials)
+            {
+                l->onClick = [t = juce::String (tag)] { bbeStats::send ("link_click", { { "target", t } }); };
+                addAndMakeVisible (*l);
+            }
+        }
+
+        // anonymous launch ping — once per process run (SYS USAGE STATS opts out)
+        static bool sentLaunch = false;
+        if (! sentLaunch && bbeStats::enabled())
+        {
+            sentLaunch = true;
+            bbeStats::send ("plugin_launched",
+                            { { "format", juce::AudioProcessor::getWrapperTypeDescription (proc.wrapperType) } });
+        }
 
 
         setSize (1180, 784);   // 9 columns (DI + 8 strips)
@@ -1019,8 +1162,21 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
         const int ky = bottom.getCentreY() - kh / 2;
         int kx = bottom.getRight() - kw;
         outKnob->setBounds  (kx, ky, kw, kh); kx -= kw + kgap;
+        if (widthKnob->isVisible())
+        {
+            widthKnob->setBounds (kx, ky, kw, kh);
+            kx -= kw + kgap;
+        }
         glueKnob->setBounds (kx, ky, kw, kh); kx -= kw + kgap;
         inKnob->setBounds   (kx, ky, kw, kh);
+
+        // social icons, footer bottom-right (laid right-to-left)
+        int sx = getWidth() - padX;
+        for (auto* l : { &siteLink, &amLink, &spLink, &ytLink, &ttLink, &igLink })
+        {
+            l->setBounds (sx - 20, getHeight() - 32, 20, 20);
+            sx -= 20 + 10;
+        }
 
         // spectrum analyzer fills the left, with the FREQ mode cycler above it
         auto left = bottom.withTrimmedRight (bottom.getRight() - (kx - 28));
@@ -1048,7 +1204,13 @@ struct BoRBassEnhancerEditor::Content : public juce::Component, private juce::Ti
     std::unique_ptr<bbe::Analyzer> analyzer;
     std::unique_ptr<bbe::SquareButton> freq, sys;
     std::unique_ptr<bbe::InfoPanel> info;
-    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob;
+    std::unique_ptr<bbe::Knob> inKnob, glueKnob, outKnob, widthKnob;
+    bbe::SocialIcon igLink   { bbe::SocialIcon::instagram,  "Instagram",      juce::URL ("https://boxofrules.com/instagram?src=plugin") };
+    bbe::SocialIcon ttLink   { bbe::SocialIcon::tiktok,     "TikTok",         juce::URL ("https://boxofrules.com/tiktok?src=plugin") };
+    bbe::SocialIcon ytLink   { bbe::SocialIcon::youtube,    "YouTube",        juce::URL ("https://boxofrules.com/youtube?src=plugin") };
+    bbe::SocialIcon spLink   { bbe::SocialIcon::spotify,    "Spotify",        juce::URL ("https://boxofrules.com/spotify?src=plugin") };
+    bbe::SocialIcon amLink   { bbe::SocialIcon::appleMusic, "Apple Music",    juce::URL ("https://boxofrules.com/apple?src=plugin") };
+    bbe::SocialIcon siteLink { bbe::SocialIcon::site,       "boxofrules.com", juce::URL ("https://boxofrules.com/?utm_source=bass-betterer&utm_medium=plugin") };
     juce::HyperlinkButton updateLink { {}, juce::URL ("https://github.com/boxofrules/bass-betterer/releases/latest") };
     std::unique_ptr<UpdateCheckThread> updateThread;
     float cpuDisp = 0.0f;

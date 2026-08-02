@@ -110,7 +110,12 @@ private:
     std::atomic<float>* pInGain  = nullptr;
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pGlue    = nullptr;
-    std::atomic<float>* pAnalyzer = nullptr;  // spectrum display feed on/off (CPU saver)
+    std::atomic<float>* pAnalyzer = nullptr;
+    std::atomic<float>* pWidth    = nullptr;   // 0.2.2 WIDTH dial (spread amount, 0 = off)
+    float smWidth = 0.0f;
+    juce::HeapBlock<float> spreadBuf;          // spreader: 6 ms mid delay + side low-cut
+    int   spreadLen = 1, spreadW = 0;
+    float spreadLp = 0.0f, spreadLpC = 0.0f;  // spectrum display feed on/off (CPU saver)
     std::atomic<float>* pDiGain  = nullptr;    // DI blend strip (raw input, pre input-gain)
     std::atomic<float>* pDiMute  = nullptr;
     std::atomic<float>* pDiSolo  = nullptr;
