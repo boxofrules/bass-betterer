@@ -1,7 +1,7 @@
 # Bass Better-er
 
-> ## 🚚 Bass Better-er has grown up — meet **Box of Bass**
-> **This was the beta. The plugin's future lives at [boxofrules.com/plugins](https://boxofrules.com/plugins)** — all future plugins, updates and news are there, starting with **Box of Bass v1**, the successor to Bass Better-er.
+> ## 🚚 Bass Better-er has grown up — meet **[Box of Bass](https://boxofrules.com/box-of-bass)**
+> **This was the beta. The plugin's future lives at [boxofrules.com/plugins](https://boxofrules.com/plugins)** — all future plugins, updates and news are there, starting with **[Box of Bass v1](https://boxofrules.com/box-of-bass)**, the successor to Bass Better-er.
 > **This repository gets no further updates** beyond this final beta release (v0.2.2). Existing sessions keep working — Bass Better-er and Box of Bass install side by side.
 >
 > 🗣️ Got two minutes? Tell us what the beta got right and wrong: **[the Bass Better-er farewell survey](https://docs.google.com/forms/d/e/1FAIpQLSckz4y1fh-NelGAHQPh7ZIIQ5gSAyqYx7a6ZXHdjAMmOfoFXw/viewform)**.
