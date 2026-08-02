@@ -20,6 +20,12 @@ A JUCE 8 audio effect plugin (AU, VST3, and Standalone, macOS and Windows). Drop
 
 Influenced heavily by the bass tones of Royal Blood, Justin Chancellor of Tool, and Muse. Big, harmonically rich low end that sits larger than the mix. The intent is simple: a low effort, low complexity way to get a studio ready signal from any bass input. No amp, no mic setup, no routing. Drop it on a DI and go.
 
+## What's new in 0.2.2 — the final release
+
+- **WIDTH** — a stereo spreader between GLUE and OUTPUT (0–100 %, stereo instances only), backported from [Box of Bass](https://boxofrules.com/plugins/box-of-bass?utm_source=github&utm_medium=readme&utm_campaign=bass-betterer-farewell) as a parting gift. Generated width; the mono fold-down stays exactly intact. 0 (default) is fully out of the path.
+- **Anonymous usage data with a real checkbox** — see [Does it phone home?](#how-it-works-tech-faq); the SYS panel has the pre-checked "Send anonymous usage data" checkbox and a PRIVACY link.
+- **Footer social icons** and this README's farewell banner. No further releases after this one.
+
 ## What's new in 0.2.x
 
 - **A second drive character: DIST** — every drive strip now offers FUZZ (the original, byte-for-byte unchanged) or DIST, a second amp character: the same drive through a blended rig capture. Click the strip's TYPE key to switch; loudness is matched so switching compares character, not volume.
@@ -59,6 +65,7 @@ Every layer is a channel strip with the same controls.
 | --- | --- |
 | INPUT | Input gain. Also drives the fuzz, like a pedal. |
 | GLUE | Sums the layers into one cohesive instrument. |
+| WIDTH | Stereo spreader, 0–100 % (stereo instances only). 0 is fully bypassed. |
 | OUTPUT | Output gain. |
 | FREQ | Spectrum display — click to cycle OFF / ALL / PRE (DI only) / POST (plugin only). OFF saves CPU. |
 | A/B | On the DI strip: audition the raw DI against the processed sound (click-free, never saved with the session). |
